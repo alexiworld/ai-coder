@@ -2,6 +2,19 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { KanbanBoard } from "@/components/KanbanBoard";
 
+import { vi } from "vitest";
+
+// Mock next/navigation
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: vi.fn() }),
+}));
+
+// Mock auth module
+vi.mock("@/lib/auth", () => ({
+  logout: vi.fn(),
+  getUsername: () => "user",
+}));
+
 const getFirstColumn = () => screen.getAllByTestId(/column-/i)[0];
 
 describe("KanbanBoard", () => {
@@ -32,7 +45,9 @@ describe("KanbanBoard", () => {
     const detailsInput = within(column).getByPlaceholderText(/details/i);
     await userEvent.type(detailsInput, "Notes");
 
-    await userEvent.click(within(column).getByRole("button", { name: /add card/i }));
+    await userEvent.click(
+      within(column).getByRole("button", { name: /add card/i }),
+    );
 
     expect(within(column).getByText("New card")).toBeInTheDocument();
 
