@@ -83,37 +83,29 @@ Deliverables:
 
 ---
 
-## Part 5: Database Modeling
+## Part 5: Database Modeling (DONE - AWAITING SIGN-OFF)
 
-**Goal:** Propose and document a database schema for storing user + Kanban data using SQLite. Get user sign-off before implementation.
+- [x] Design normalized SQLite schema (5 tables: users, sessions, boards, columns, cards)
+- [x] Create `docs/DATABASE.md` with:
+  - Full SQL schema with CREATE TABLE statements
+  - Rationale for normalized tables over JSON blobs
+  - Migration strategy (CREATE IF NOT EXISTS on startup)
+  - Example queries for all CRUD operations
+  - Default seed data (5 columns for new users)
+- [ ] User reviews and approves the design
 
-### Sub-steps
+### Schema Features
+- Supports multiple users (future-proof)
+- One board per user (enforced by UNIQUE on user_id)
+- 5 fixed columns per board (Backlog, Discovery, In Progress, Review, Done)
+- Variable cards per column with position ordering
+- Foreign keys with CASCADE deletes for referential integrity
+- Internal integer PKs + text-based IDs for frontend compatibility
+- Session table with expiration
+- SQLite (no external DB dependency)
 
-1. Design database schema
-   - [ ] Tables:
-     - `users` (id INTEGER PK, username TEXT UNIQUE, password_hash TEXT, created_at TIMESTAMP)
-     - `sessions` (id TEXT PK, user_id INTEGER FK, created_at TIMESTAMP, expires_at TIMESTAMP)
-     - `boards` (id INTEGER PK, user_id INTEGER FK, name TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)
-     - `columns` (id INTEGER PK, board_id INTEGER FK, column_id TEXT, title TEXT, position INTEGER, created_at TIMESTAMP)
-     - `cards` (id INTEGER PK, column_id INTEGER FK, card_id TEXT, title TEXT, details TEXT, position INTEGER, created_at TIMESTAMP)
-
-2. Document the approach
-   - [ ] Create `docs/DATABASE.md` with:
-     - Schema diagram (text-based)
-     - Rationale for JSON vs normalized tables (recommend normalized for flexibility)
-     - Migration strategy (auto-create on startup if not exists)
-     - Example queries
-   - [ ] Open for user review
-
-3. Get user sign-off
-   - [ ] Present to user, adjust based on feedback
-   - [ ] Once approved, lock the schema
-
-### Tests & Success Criteria
-- Schema is documented in `docs/DATABASE.md`
-- Schema supports: multiple users, one board per user, fixed columns, variable cards per column
-- Schema uses SQLite (no external DB needed)
-- User confirms the design before Part 6 implementation
+### Next Step
+Once you confirm the schema is acceptable, I'll proceed to Part 6 (Backend CRUD API implementation).
 
 ---
 
