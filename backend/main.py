@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend.routers.auth import router as auth_router
+from backend.routers.board import router as board_router
 
 app = FastAPI(title="Kanban Studio API")
 
@@ -18,6 +19,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(board_router)
 
 
 @app.get("/api/health")

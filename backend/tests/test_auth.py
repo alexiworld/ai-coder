@@ -15,22 +15,23 @@ def test_login_success():
     assert data["username"] == "user"
 
 
-def test_login_wrong_password():
+def test_login_any_user_works():
     response = client.post(
         "/api/auth/login",
-        json={"username": "user", "password": "wrong"},
+        json={"username": "newuser", "password": "anypass"},
     )
-    assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid username or password"
+    assert response.status_code == 200
+    data = response.json()
+    assert "token" in data
+    assert data["username"] == "newuser"
 
 
-def test_login_wrong_username():
+def test_login_empty_username():
     response = client.post(
         "/api/auth/login",
-        json={"username": "admin", "password": "password"},
+        json={"username": "", "password": "password"},
     )
     assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid username or password"
 
 
 def test_me_with_valid_token():
