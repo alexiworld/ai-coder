@@ -13,6 +13,10 @@ vi.mock("@/lib/auth", () => ({
   getToken: () => "test-token",
 }));
 
+vi.mock("@/components/AIChatSidebar", () => ({
+  AIChatSidebar: () => null,
+}));
+
 const mockBoardData = {
   columns: [
     { id: "col-backlog", title: "Backlog", cardIds: ["card-1", "card-2"] },
