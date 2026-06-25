@@ -93,21 +93,52 @@ export const AIChatSidebar = ({
         }`}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-[var(--stroke)] px-6 py-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--gray-text)]">
-              AI Assistant
-            </p>
-            <h2 className="mt-1 font-display text-lg font-semibold text-[var(--navy-dark)]">
-              Chat with your board
-            </h2>
+        <div className="flex items-center justify-between border-b border-[var(--stroke)] px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--secondary-purple)]">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="white"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="font-display text-sm font-semibold text-[var(--navy-dark)]">
+                AI Assistant
+              </h2>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)]">
+                Chat with your board
+              </p>
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full border border-[var(--stroke)] px-3 py-1.5 text-xs font-semibold text-[var(--gray-text)] transition hover:text-[var(--navy-dark)]"
+            className="rounded-full border border-[var(--stroke)] p-1.5 text-[var(--gray-text)] transition hover:border-[var(--navy-dark)] hover:text-[var(--navy-dark)]"
+            aria-label="Close AI chat"
           >
-            Close
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
         </div>
 
