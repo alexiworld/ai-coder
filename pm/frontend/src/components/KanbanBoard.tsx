@@ -11,13 +11,16 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
+import { arrayMove } from "@dnd-kit/sortable";
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
 import { BoardSelector } from "@/components/BoardSelector";
+import { CardDetailModal } from "@/components/CardDetailModal";
 import {
   moveCard as moveCardUtil,
   type BoardData,
   type Card,
+  PRIORITY_CONFIG,
 } from "@/lib/kanban";
 import { logout, getUsername } from "@/lib/auth";
 import { useRouter } from "next/navigation";
@@ -30,9 +33,11 @@ import {
   renameColumn as apiRenameColumn,
   addColumn as apiAddColumn,
   deleteColumn as apiDeleteColumn,
+  reorderColumns as apiReorderColumns,
   addCard as apiAddCard,
   moveCard as apiMoveCard,
   deleteCard as apiDeleteCard,
+  editCard as apiEditCard,
   type BoardResponse,
   type BoardSummary,
 } from "@/lib/api";
@@ -78,9 +83,13 @@ export const KanbanBoard = () => {
   const [boards, setBoards] = useState<BoardSummary[]>([]);
   const [activeBoardId, setActiveBoardId] = useState<number | undefined>(undefined);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
+  const [activeColumnId, setActiveColumnId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [aiSidebarOpen, setAiSidebarOpen] = useState(false);
+  const [editingCard, setEditingCard] = useState<Card | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState<Set<string>>(new Set());
 
   const loadBoards = useCallback(async () => {
     try {
@@ -136,7 +145,40 @@ export const KanbanBoard = () => {
 
   const cardsById = useMemo(() => board.cards, [board.cards]);
 
+  const togglePriorityFilter = (priority: string) => {
+    setPriorityFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(priority)) {
+        next.delete(priority);
+      } else {
+        next.add(priority);
+      }
+      return next;
+    });
+  };
+
+  const isCardVisible = useCallback(
+    (card: Card) => {
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        if (
+          !card.title.toLowerCase().includes(q) &&
+          !card.details.toLowerCase().includes(q)
+        ) {
+          return false;
+        }
+      }
+      if (priorityFilter.size > 0 && !priorityFilter.has(card.priority)) {
+        return false;
+      }
+      return true;
+    },
+    [searchQuery, priorityFilter],
+  );
+
   const handleSelectBoard = async (id: number) => {
+    setSearchQuery("");
+    setPriorityFilter(new Set());
     await loadBoard(id);
   };
 
@@ -172,15 +214,52 @@ export const KanbanBoard = () => {
   };
 
   const handleDragStart = (event: DragStartEvent) => {
-    setActiveCardId(event.active.id as string);
+    if (event.active.data.current?.type === "column") {
+      setActiveColumnId(event.active.id as string);
+    } else {
+      setActiveCardId(event.active.id as string);
+    }
   };
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveCardId(null);
+    setActiveColumnId(null);
 
     if (!over || active.id === over.id) return;
 
+    if (active.data.current?.type === "column") {
+      const draggedColId = active.id as string;
+      let targetColId = over.id as string;
+
+      // If dropped over a card, find the card's column
+      if (!board.columns.find((c) => c.id === targetColId)) {
+        const parentCol = board.columns.find((c) =>
+          c.cardIds.includes(targetColId),
+        );
+        targetColId = parentCol?.id ?? "";
+      }
+
+      if (!targetColId || targetColId === draggedColId) return;
+
+      const fromIdx = board.columns.findIndex((c) => c.id === draggedColId);
+      const toIdx = board.columns.findIndex((c) => c.id === targetColId);
+      if (fromIdx < 0 || toIdx < 0) return;
+
+      const newColumns = arrayMove(board.columns, fromIdx, toIdx);
+      setBoard((prev) => ({ ...prev, columns: newColumns }));
+
+      if (activeBoardId !== undefined) {
+        try {
+          await apiReorderColumns(activeBoardId, newColumns.map((c) => c.id));
+        } catch {
+          loadBoard(activeBoardId);
+        }
+      }
+      return;
+    }
+
+    // Card move
     setBoard((prev) => ({
       ...prev,
       columns: moveCardUtil(prev.columns, active.id as string, over.id as string),
@@ -234,9 +313,10 @@ export const KanbanBoard = () => {
   const handleDeleteColumn = async (columnId: string) => {
     const col = board.columns.find((c) => c.id === columnId);
     const cardCount = col?.cardIds.length ?? 0;
-    const msg = cardCount > 0
-      ? `Delete column "${col?.title}" and its ${cardCount} card(s)?`
-      : `Delete column "${col?.title}"?`;
+    const msg =
+      cardCount > 0
+        ? `Delete column "${col?.title}" and its ${cardCount} card(s)?`
+        : `Delete column "${col?.title}"?`;
     if (!window.confirm(msg)) return;
     try {
       await apiDeleteColumn(columnId, activeBoardId);
@@ -295,6 +375,34 @@ export const KanbanBoard = () => {
     }
   };
 
+  const handleOpenCard = (card: Card) => {
+    setEditingCard(card);
+  };
+
+  const handleCloseModal = () => {
+    setEditingCard(null);
+  };
+
+  const handleSaveCard = async (
+    cardId: string,
+    fields: { title?: string; details?: string; priority?: string; due_date?: string },
+  ) => {
+    await apiEditCard(cardId, fields, activeBoardId);
+    setBoard((prev) => ({
+      ...prev,
+      cards: {
+        ...prev.cards,
+        [cardId]: {
+          ...prev.cards[cardId],
+          ...fields,
+          // Normalize: empty due_date string means null
+          due_date: fields.due_date || null,
+          priority: (fields.priority as Card["priority"]) ?? prev.cards[cardId].priority,
+        },
+      },
+    }));
+  };
+
   const handleLogout = async () => {
     await logout();
     router.replace("/login");
@@ -305,6 +413,9 @@ export const KanbanBoard = () => {
   };
 
   const activeCard = activeCardId ? cardsById[activeCardId] : null;
+  const activeColumn = activeColumnId
+    ? board.columns.find((c) => c.id === activeColumnId)
+    : null;
 
   if (isLoading) {
     return (
@@ -387,6 +498,28 @@ export const KanbanBoard = () => {
               </button>
               <button
                 type="button"
+                onClick={() => router.push("/profile")}
+                className="rounded-full border border-[var(--stroke)] p-1.5 text-[var(--gray-text)] transition hover:border-[var(--navy-dark)] hover:text-[var(--navy-dark)]"
+                aria-label="Profile"
+                title="Profile"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+              </button>
+              <button
+                type="button"
                 onClick={handleLogout}
                 className="rounded-full border border-[var(--stroke)] p-1.5 text-[var(--gray-text)] transition hover:border-[var(--navy-dark)] hover:text-[var(--navy-dark)]"
                 aria-label="Logout"
@@ -410,15 +543,85 @@ export const KanbanBoard = () => {
             </div>
           </header>
 
+          {/* Search and filter bar */}
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--stroke)] bg-white/80 px-4 py-2.5 backdrop-blur" data-testid="search-filter-bar">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="flex-shrink-0 text-[var(--gray-text)]"
+            >
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              type="search"
+              placeholder="Search cards..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="min-w-[140px] flex-1 bg-transparent text-sm text-[var(--navy-dark)] outline-none placeholder:text-[var(--gray-text)]"
+              data-testid="search-input"
+            />
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--gray-text)]">
+                Priority:
+              </span>
+              {(["low", "medium", "high", "critical"] as const).map((p) => {
+                const cfg = PRIORITY_CONFIG[p];
+                const active = priorityFilter.has(p);
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => togglePriorityFilter(p)}
+                    className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition"
+                    style={{
+                      backgroundColor: active ? cfg.color : "transparent",
+                      color: active ? "#fff" : cfg.color,
+                      border: `1.5px solid ${cfg.color}`,
+                    }}
+                    data-testid={`filter-${p}`}
+                  >
+                    {cfg.label}
+                  </button>
+                );
+              })}
+              {(searchQuery || priorityFilter.size > 0) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery("");
+                    setPriorityFilter(new Set());
+                  }}
+                  className="rounded-full border border-[var(--stroke)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--gray-text)] transition hover:text-[var(--navy-dark)]"
+                  data-testid="clear-filters"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+
           <div className="flex gap-4">
-            <div className="flex-1 min-w-0">
+            <div className="min-w-0 flex-1">
               <DndContext
                 sensors={sensors}
                 collisionDetection={closestCorners}
                 onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
               >
-                <section className="grid gap-3" style={{ gridTemplateColumns: `repeat(${board.columns.length + 1}, minmax(200px, 1fr))` }}>
+                <section
+                  className="grid gap-3"
+                  style={{
+                    gridTemplateColumns: `repeat(${board.columns.length + 1}, minmax(200px, 1fr))`,
+                  }}
+                >
                   {board.columns.map((column, index) => (
                     <KanbanColumn
                       key={column.id}
@@ -426,11 +629,13 @@ export const KanbanBoard = () => {
                       colorIndex={index}
                       cards={column.cardIds
                         .map((cardId) => board.cards[cardId])
-                        .filter(Boolean)}
+                        .filter(Boolean)
+                        .filter(isCardVisible)}
                       onRename={handleRenameColumn}
                       onAddCard={handleAddCard}
                       onDeleteCard={handleDeleteCard}
                       onDeleteColumn={handleDeleteColumn}
+                      onEditCard={handleOpenCard}
                     />
                   ))}
                   {/* Add column button */}
@@ -440,7 +645,17 @@ export const KanbanBoard = () => {
                       onClick={handleAddColumn}
                       className="flex items-center gap-1.5 rounded-full border border-dashed border-[var(--stroke)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--primary-blue)] transition hover:border-[var(--primary-blue)]"
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
                         <line x1="12" y1="5" x2="12" y2="19" />
                         <line x1="5" y1="12" x2="19" y2="12" />
                       </svg>
@@ -452,6 +667,12 @@ export const KanbanBoard = () => {
                   {activeCard ? (
                     <div className="w-[220px]">
                       <KanbanCardPreview card={activeCard} />
+                    </div>
+                  ) : activeColumn ? (
+                    <div className="w-[220px] rounded-2xl border border-[var(--stroke)] bg-white/95 px-4 py-3 shadow-2xl">
+                      <span className="font-display text-sm font-semibold text-[var(--navy-dark)]">
+                        {activeColumn.title}
+                      </span>
                     </div>
                   ) : null}
                 </DragOverlay>
@@ -489,6 +710,14 @@ export const KanbanBoard = () => {
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
           </svg>
         </button>
+      )}
+
+      {editingCard && (
+        <CardDetailModal
+          card={editingCard}
+          onClose={handleCloseModal}
+          onSave={handleSaveCard}
+        />
       )}
     </div>
   );

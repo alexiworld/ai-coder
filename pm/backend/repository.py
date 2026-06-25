@@ -385,6 +385,25 @@ def delete_card(
     return cursor.rowcount > 0
 
 
+def reorder_columns(
+    conn: sqlite3.Connection,
+    username: str,
+    board_id: int,
+    column_ids: list[str],
+    *,
+    commit: bool = True,
+) -> None:
+    user_id = get_user_id(conn, username)
+    _assert_board_owner(conn, user_id, board_id)
+    for position, col_id in enumerate(column_ids):
+        conn.execute(
+            "UPDATE columns SET position = ? WHERE column_id = ? AND board_id = ?",
+            (position, col_id, board_id),
+        )
+    if commit:
+        conn.commit()
+
+
 def edit_card(
     conn: sqlite3.Connection,
     username: str,
@@ -413,8 +432,11 @@ def edit_card(
         updates.append("priority = ?")
         params.append(priority)
     if due_date is not None:
-        updates.append("due_date = ?")
-        params.append(due_date)
+        if due_date == "":
+            updates.append("due_date = NULL")
+        else:
+            updates.append("due_date = ?")
+            params.append(due_date)
 
     if not updates:
         return False

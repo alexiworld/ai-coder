@@ -138,6 +138,16 @@ export async function deleteColumn(
   return authFetch(`/api/board/columns/${columnId}`, { method: "DELETE" });
 }
 
+export async function reorderColumns(
+  boardId: number,
+  columnIds: string[],
+): Promise<unknown> {
+  return authFetch(`/api/boards/${boardId}/columns/reorder`, {
+    method: "PUT",
+    body: JSON.stringify({ column_ids: columnIds }),
+  });
+}
+
 // --- Card management ---
 
 export async function addCard(

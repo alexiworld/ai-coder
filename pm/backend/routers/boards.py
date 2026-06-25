@@ -9,6 +9,7 @@ from backend.repository import (
     rename_column,
     add_column,
     delete_column,
+    reorder_columns,
     add_card,
     move_card,
     delete_card,
@@ -23,6 +24,7 @@ from backend.models import (
     RenameBoardRequest,
     RenameColumnRequest,
     AddColumnRequest,
+    ReorderColumnsRequest,
     AddCardRequest,
     EditCardRequest,
     MoveCardRequest,
@@ -148,6 +150,23 @@ def rename_column_endpoint(
         ok = rename_column(conn, username, column_id, request.title, board_id=board_id)
         if not ok:
             raise HTTPException(status_code=404, detail="Column not found")
+        return {"status": "ok"}
+    finally:
+        conn.close()
+
+
+@router.put("/{board_id}/columns/reorder")
+def reorder_columns_endpoint(
+    board_id: int,
+    request: ReorderColumnsRequest,
+    username: str = Depends(get_current_user),
+):
+    conn = get_connection()
+    try:
+        try:
+            reorder_columns(conn, username, board_id, request.column_ids)
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Board not found")
         return {"status": "ok"}
     finally:
         conn.close()

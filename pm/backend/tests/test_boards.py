@@ -401,6 +401,82 @@ class TestPasswordAuth:
         assert res.status_code == 422
 
 
+class TestColumnReorder:
+    def test_reorder_columns(self):
+        token = _login()
+        board = client.get("/api/board", headers=_auth(token)).json()
+        board_id = board["id"]
+        col_ids = [c["id"] for c in board["columns"]]
+        assert len(col_ids) == 5
+
+        # Reverse the column order
+        reversed_ids = list(reversed(col_ids))
+        res = client.put(
+            f"/api/boards/{board_id}/columns/reorder",
+            headers=_auth(token),
+            json={"column_ids": reversed_ids},
+        )
+        assert res.status_code == 200
+
+        updated = client.get(f"/api/boards/{board_id}", headers=_auth(token)).json()
+        updated_ids = [c["id"] for c in updated["columns"]]
+        assert updated_ids == reversed_ids
+
+    def test_reorder_columns_partial(self):
+        token = _login()
+        board = client.get("/api/board", headers=_auth(token)).json()
+        board_id = board["id"]
+        col_ids = [c["id"] for c in board["columns"]]
+
+        # Move last column to first
+        new_order = [col_ids[-1]] + col_ids[:-1]
+        client.put(
+            f"/api/boards/{board_id}/columns/reorder",
+            headers=_auth(token),
+            json={"column_ids": new_order},
+        )
+
+        updated = client.get(f"/api/boards/{board_id}", headers=_auth(token)).json()
+        assert updated["columns"][0]["id"] == col_ids[-1]
+
+    def test_reorder_columns_wrong_board(self):
+        token_a = _login()
+        token_b = _login()
+
+        board_a = client.get("/api/board", headers=_auth(token_a)).json()
+        board_id = board_a["id"]
+        col_ids = [c["id"] for c in board_a["columns"]]
+
+        res = client.put(
+            f"/api/boards/{board_id}/columns/reorder",
+            headers=_auth(token_b),
+            json={"column_ids": col_ids},
+        )
+        assert res.status_code == 404
+
+    def test_edit_card_clears_due_date(self):
+        token = _login()
+        board = client.get("/api/board", headers=_auth(token)).json()
+        col_id = board["columns"][0]["id"]
+
+        add_res = client.post(
+            "/api/board/cards",
+            headers=_auth(token),
+            json={"column_id": col_id, "title": "Task", "details": "", "due_date": "2026-08-01"},
+        )
+        card_id = add_res.json()["card_id"]
+
+        # Clear the due date by sending empty string
+        client.put(
+            f"/api/board/cards/{card_id}",
+            headers=_auth(token),
+            json={"due_date": ""},
+        )
+
+        updated = client.get("/api/board", headers=_auth(token)).json()
+        assert updated["cards"][card_id]["due_date"] is None
+
+
 class TestBoardApiResponse:
     def test_board_out_includes_id_and_name(self):
         token = _login()

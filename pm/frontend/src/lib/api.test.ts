@@ -8,7 +8,22 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 import { getToken } from "@/lib/auth";
-import { fetchBoard, addCard, deleteCard, renameColumn, moveCard, editCard } from "@/lib/api";
+import {
+  fetchBoard,
+  listBoards,
+  createBoard,
+  renameBoard,
+  deleteBoard,
+  addCard,
+  deleteCard,
+  renameColumn,
+  addColumn,
+  deleteColumn,
+  reorderColumns,
+  moveCard,
+  editCard,
+  changePassword,
+} from "@/lib/api";
 
 beforeEach(() => {
   mockFetch.mockReset();
@@ -189,5 +204,88 @@ describe("API client", () => {
 
     const result = await fetchBoard();
     expect(result).toBeNull();
+  });
+
+  it("fetchBoard with boardId routes to /api/boards/:id", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ id: 2, name: "B" }) });
+    await fetchBoard(2);
+    expect(mockFetch).toHaveBeenCalledWith("/api/boards/2", expect.any(Object));
+  });
+
+  it("listBoards returns board list", async () => {
+    const boards = [{ id: 1, name: "My Board" }];
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => boards });
+    const result = await listBoards();
+    expect(result).toEqual(boards);
+    expect(mockFetch).toHaveBeenCalledWith("/api/boards", expect.any(Object));
+  });
+
+  it("createBoard posts to /api/boards", async () => {
+    const board = { id: 2, name: "Sprint 1" };
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => board });
+    const result = await createBoard("Sprint 1");
+    expect(result).toEqual(board);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/boards",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ name: "Sprint 1" }) }),
+    );
+  });
+
+  it("renameBoard sends PUT request", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ status: "ok" }) });
+    await renameBoard(1, "New Name");
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/boards/1/name",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ name: "New Name" }) }),
+    );
+  });
+
+  it("deleteBoard sends DELETE request", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ status: "ok" }) });
+    await deleteBoard(1);
+    expect(mockFetch).toHaveBeenCalledWith("/api/boards/1", expect.objectContaining({ method: "DELETE" }));
+  });
+
+  it("addColumn sends POST request", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ column_id: "col-abc" }) });
+    const result = await addColumn("QA");
+    expect(result).toEqual({ column_id: "col-abc" });
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/board/columns",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ title: "QA", color: undefined }) }),
+    );
+  });
+
+  it("deleteColumn sends DELETE request", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ status: "ok" }) });
+    await deleteColumn("col-1");
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/board/columns/col-1",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("reorderColumns sends PUT request to /api/boards/:id/columns/reorder", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ status: "ok" }) });
+    await reorderColumns(1, ["col-a", "col-b"]);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/boards/1/columns/reorder",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ column_ids: ["col-a", "col-b"] }),
+      }),
+    );
+  });
+
+  it("changePassword sends PUT request", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ status: "ok" }) });
+    await changePassword("old", "new123");
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/auth/me/password",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ current_password: "old", new_password: "new123" }),
+      }),
+    );
   });
 });

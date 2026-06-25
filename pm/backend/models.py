@@ -74,6 +74,10 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
 
 
+class ReorderColumnsRequest(BaseModel):
+    column_ids: list[str]
+
+
 # --- AI structured output models ---
 
 class NewCard(BaseModel):

@@ -7,6 +7,7 @@ import { PRIORITY_CONFIG } from "@/lib/kanban";
 type KanbanCardProps = {
   card: Card;
   onDelete: (cardId: string) => void;
+  onEdit?: (card: Card) => void;
 };
 
 function formatDueDate(due: string): { label: string; overdue: boolean } {
@@ -18,9 +19,9 @@ function formatDueDate(due: string): { label: string; overdue: boolean } {
   return { label, overdue };
 }
 
-export const KanbanCard = ({ card, onDelete }: KanbanCardProps) => {
+export const KanbanCard = ({ card, onDelete, onEdit }: KanbanCardProps) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: card.id });
+    useSortable({ id: card.id, data: { type: "card" } });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -41,16 +42,46 @@ export const KanbanCard = ({ card, onDelete }: KanbanCardProps) => {
         isDragging && "opacity-60 shadow-[0_18px_32px_rgba(3,33,71,0.16)]",
       )}
       {...attributes}
-      {...listeners}
       data-testid={`card-${card.id}`}
     >
       <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
+        {/* Drag handle */}
+        <div
+          {...listeners}
+          className="mt-0.5 flex-shrink-0 cursor-grab touch-none text-[var(--gray-text)] opacity-0 transition-opacity group-hover:opacity-40 hover:opacity-100 active:cursor-grabbing"
+          aria-label="Drag card"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+          >
+            <circle cx="9" cy="5" r="2" />
+            <circle cx="15" cy="5" r="2" />
+            <circle cx="9" cy="12" r="2" />
+            <circle cx="15" cy="12" r="2" />
+            <circle cx="9" cy="19" r="2" />
+            <circle cx="15" cy="19" r="2" />
+          </svg>
+        </div>
+
+        {/* Clickable card body */}
+        <div
+          className="min-w-0 flex-1 cursor-pointer"
+          onClick={() => onEdit?.(card)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => e.key === "Enter" && onEdit?.(card)}
+          aria-label={`Edit ${card.title}`}
+        >
           <h4 className="font-display text-sm font-semibold leading-snug text-[var(--navy-dark)]">
             {card.title}
           </h4>
           {card.details && (
-            <p className="mt-1 text-xs leading-5 text-[var(--gray-text)]">
+            <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--gray-text)]">
               {card.details}
             </p>
           )}
@@ -75,7 +106,17 @@ export const KanbanCard = ({ card, onDelete }: KanbanCardProps) => {
                   )}
                   data-testid="due-date"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="9"
+                    height="9"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
                     <line x1="16" y1="2" x2="16" y2="6" />
                     <line x1="8" y1="2" x2="8" y2="6" />
@@ -87,6 +128,7 @@ export const KanbanCard = ({ card, onDelete }: KanbanCardProps) => {
             </div>
           )}
         </div>
+
         <button
           type="button"
           onClick={() => onDelete(card.id)}

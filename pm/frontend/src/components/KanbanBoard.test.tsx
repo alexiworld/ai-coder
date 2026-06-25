@@ -17,6 +17,24 @@ vi.mock("@/components/AIChatSidebar", () => ({
   AIChatSidebar: () => null,
 }));
 
+vi.mock("@/components/CardDetailModal", () => ({
+  CardDetailModal: ({
+    card,
+    onClose,
+    onSave,
+  }: {
+    card: { id: string; title: string };
+    onClose: () => void;
+    onSave: (id: string, fields: object) => Promise<void>;
+  }) => (
+    <div data-testid="card-detail-modal">
+      <span>{card.title}</span>
+      <button onClick={() => onSave(card.id, { title: "Updated Title" }).then(onClose)}>Save Modal</button>
+      <button onClick={onClose}>Close Modal</button>
+    </div>
+  ),
+}));
+
 const mockBoardData = {
   id: 1,
   name: "My Board",
@@ -80,7 +98,7 @@ describe("KanbanBoard", () => {
   it("renders five columns", async () => {
     render(<KanbanBoard />);
     await waitFor(() => {
-      expect(screen.getAllByTestId(/column-/i)).toHaveLength(5);
+      expect(screen.getAllByTestId(/^column-col-/i)).toHaveLength(5);
     });
   });
 
@@ -164,5 +182,116 @@ describe("KanbanBoard", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /add column/i })).toBeInTheDocument();
     });
+  });
+
+  it("shows search filter bar", async () => {
+    render(<KanbanBoard />);
+    await waitFor(() => {
+      expect(screen.getByTestId("search-filter-bar")).toBeInTheDocument();
+      expect(screen.getByTestId("search-input")).toBeInTheDocument();
+    });
+  });
+
+  it("shows priority filter buttons", async () => {
+    render(<KanbanBoard />);
+    await waitFor(() => {
+      expect(screen.getByTestId("filter-low")).toBeInTheDocument();
+      expect(screen.getByTestId("filter-high")).toBeInTheDocument();
+      expect(screen.getByTestId("filter-critical")).toBeInTheDocument();
+    });
+  });
+
+  it("shows clear filters button when search has text", async () => {
+    render(<KanbanBoard />);
+    await waitFor(() => expect(screen.getByTestId("search-input")).toBeInTheDocument());
+    await userEvent.type(screen.getByTestId("search-input"), "test query");
+    expect(screen.getByTestId("clear-filters")).toBeInTheDocument();
+  });
+
+  it("shows profile button in header", async () => {
+    render(<KanbanBoard />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /profile/i })).toBeInTheDocument();
+    });
+  });
+
+  it("toggles priority filter on click and shows clear button", async () => {
+    render(<KanbanBoard />);
+    await waitFor(() => expect(screen.getByTestId("filter-high")).toBeInTheDocument());
+    await userEvent.click(screen.getByTestId("filter-high"));
+    expect(screen.getByTestId("clear-filters")).toBeInTheDocument();
+  });
+
+  it("clears filters on clear button click", async () => {
+    render(<KanbanBoard />);
+    await waitFor(() => expect(screen.getByTestId("filter-low")).toBeInTheDocument());
+    await userEvent.click(screen.getByTestId("filter-low"));
+    expect(screen.getByTestId("clear-filters")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("clear-filters"));
+    expect(screen.queryByTestId("clear-filters")).not.toBeInTheDocument();
+  });
+
+  it("opens card modal when card body is clicked", async () => {
+    render(<KanbanBoard />);
+    await waitFor(() => expect(screen.getByTestId("card-card-3")).toBeInTheDocument());
+    const cardBody = within(screen.getByTestId("card-card-3")).getByRole("button", {
+      name: /edit card 3/i,
+    });
+    await userEvent.click(cardBody);
+    await waitFor(() => {
+      expect(screen.getByTestId("card-detail-modal")).toBeInTheDocument();
+    });
+  });
+
+  it("closes card modal on close", async () => {
+    render(<KanbanBoard />);
+    await waitFor(() => expect(screen.getByTestId("card-card-3")).toBeInTheDocument());
+    const cardBody = within(screen.getByTestId("card-card-3")).getByRole("button", {
+      name: /edit card 3/i,
+    });
+    await userEvent.click(cardBody);
+    await waitFor(() => expect(screen.getByTestId("card-detail-modal")).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: /close modal/i }));
+    expect(screen.queryByTestId("card-detail-modal")).not.toBeInTheDocument();
+  });
+
+  it("saves card edit via modal", async () => {
+    global.fetch = vi.fn().mockImplementation((url: string, options: RequestInit = {}) => {
+      if (url === "/api/boards") return Promise.resolve(mockJsonResponse(mockBoardsList));
+      if (url === "/api/board" || url === "/api/board/") return Promise.resolve(mockJsonResponse(mockBoardData));
+      if (url.match(/^\/api\/boards\/\d+$/) && (!options.method || options.method === "GET"))
+        return Promise.resolve(mockJsonResponse(mockBoardData));
+      return Promise.resolve(mockJsonResponse({ status: "ok" }));
+    });
+
+    render(<KanbanBoard />);
+    await waitFor(() => expect(screen.getByTestId("card-card-3")).toBeInTheDocument());
+    const cardBody = within(screen.getByTestId("card-card-3")).getByRole("button", {
+      name: /edit card 3/i,
+    });
+    await userEvent.click(cardBody);
+    await waitFor(() => expect(screen.getByTestId("card-detail-modal")).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: /save modal/i }));
+    await waitFor(() => expect(screen.queryByTestId("card-detail-modal")).not.toBeInTheDocument());
+  });
+
+  it("calls logout when logout button clicked", async () => {
+    const mockLogout = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(await import("@/lib/auth")).logout = mockLogout;
+
+    render(<KanbanBoard />);
+    await waitFor(() => expect(screen.getByRole("button", { name: /logout/i })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: /logout/i }));
+    await waitFor(() => expect(mockLogout).toHaveBeenCalled());
+  });
+
+  it("deletes a card when delete button clicked", async () => {
+    render(<KanbanBoard />);
+    await waitFor(() => expect(screen.getByTestId("card-card-1")).toBeInTheDocument());
+    const deleteBtn = within(screen.getByTestId("card-card-1")).getByRole("button", {
+      name: /delete card 1/i,
+    });
+    await userEvent.click(deleteBtn);
+    await waitFor(() => expect(screen.queryByTestId("card-card-1")).not.toBeInTheDocument());
   });
 });
