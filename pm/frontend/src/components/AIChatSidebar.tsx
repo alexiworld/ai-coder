@@ -14,12 +14,14 @@ type AIChatSidebarProps = {
   isOpen: boolean;
   onClose: () => void;
   onBoardUpdate: (board: BoardResponse) => void;
+  boardId?: number;
 };
 
 export const AIChatSidebar = ({
   isOpen,
   onClose,
   onBoardUpdate,
+  boardId,
 }: AIChatSidebarProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -51,7 +53,7 @@ export const AIChatSidebar = ({
     setIsLoading(true);
 
     try {
-      const result = await sendChatMessage(userMessage);
+      const result = await sendChatMessage(userMessage, boardId);
       if (result === null) {
         setError("Session expired. Please log in again.");
         return;

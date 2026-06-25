@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from backend.database import get_connection, init_db
 from backend.routers.auth import router as auth_router
 from backend.routers.board import router as board_router
+from backend.routers.boards import router as boards_router
 from backend.routers.ai import router as ai_router
 
 
@@ -32,6 +33,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(boards_router)
 app.include_router(board_router)
 app.include_router(ai_router)
 

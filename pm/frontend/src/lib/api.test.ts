@@ -18,8 +18,10 @@ beforeEach(() => {
 describe("API client", () => {
   it("fetchBoard returns board data", async () => {
     const boardData = {
+      id: 1,
+      name: "My Board",
       columns: [
-        { id: "col-backlog", title: "Backlog", cardIds: [] },
+        { id: "col-backlog", title: "Backlog", cardIds: [], color: null },
       ],
       cards: {},
     };
@@ -51,7 +53,7 @@ describe("API client", () => {
     expect(result).toBeNull();
   });
 
-  it("addCard sends correct request", async () => {
+  it("addCard sends correct request with priority", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ card_id: "card-abc123" }),
@@ -67,6 +69,28 @@ describe("API client", () => {
           column_id: "col-backlog",
           title: "Test",
           details: "Details",
+          priority: "medium",
+        }),
+      }),
+    );
+  });
+
+  it("addCard supports custom priority and due date", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ card_id: "card-xyz" }),
+    });
+
+    await addCard("col-backlog", "Urgent", "Desc", "critical", "2026-07-01");
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/board/cards",
+      expect.objectContaining({
+        body: JSON.stringify({
+          column_id: "col-backlog",
+          title: "Urgent",
+          details: "Desc",
+          priority: "critical",
+          due_date: "2026-07-01",
         }),
       }),
     );
@@ -112,23 +136,38 @@ describe("API client", () => {
       "/api/board/cards/card-1/move",
       expect.objectContaining({
         method: "PUT",
-        body: JSON.stringify({ target_column_id: "col-done", position: undefined }),
+        body: JSON.stringify({ target_column_id: "col-done" }),
       }),
     );
   });
 
-  it("editCard sends correct request", async () => {
+  it("editCard sends correct request with fields object", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ status: "ok" }),
     });
 
-    await editCard("card-1", "New Title", "New Details");
+    await editCard("card-1", { title: "New Title", details: "New Details" });
     expect(mockFetch).toHaveBeenCalledWith(
       "/api/board/cards/card-1",
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({ title: "New Title", details: "New Details" }),
+      }),
+    );
+  });
+
+  it("editCard supports priority and due_date fields", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: "ok" }),
+    });
+
+    await editCard("card-1", { priority: "high", due_date: "2026-08-01" });
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/board/cards/card-1",
+      expect.objectContaining({
+        body: JSON.stringify({ priority: "high", due_date: "2026-08-01" }),
       }),
     );
   });

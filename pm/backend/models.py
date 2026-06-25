@@ -6,15 +6,24 @@ class RenameColumnRequest(BaseModel):
     title: str
 
 
+class AddColumnRequest(BaseModel):
+    title: str
+    color: Optional[str] = None
+
+
 class AddCardRequest(BaseModel):
     column_id: str
     title: str
     details: str = ""
+    priority: str = "medium"
+    due_date: Optional[str] = None
 
 
 class EditCardRequest(BaseModel):
     title: Optional[str] = None
     details: Optional[str] = None
+    priority: Optional[str] = None
+    due_date: Optional[str] = None
 
 
 class MoveCardRequest(BaseModel):
@@ -26,17 +35,43 @@ class CardOut(BaseModel):
     id: str
     title: str
     details: str
+    priority: str = "medium"
+    due_date: Optional[str] = None
 
 
 class ColumnOut(BaseModel):
     id: str
     title: str
     cardIds: list[str]
+    color: Optional[str] = None
 
 
 class BoardOut(BaseModel):
+    id: int
+    name: str
     columns: list[ColumnOut]
     cards: dict[str, CardOut]
+
+
+class BoardSummary(BaseModel):
+    id: int
+    name: str
+    created_at: str
+    column_count: int
+    card_count: int
+
+
+class CreateBoardRequest(BaseModel):
+    name: str
+
+
+class RenameBoardRequest(BaseModel):
+    name: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
 
 
 # --- AI structured output models ---
@@ -77,6 +112,7 @@ class AIResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
+    board_id: Optional[int] = None
 
 
 class ChatResponse(BaseModel):

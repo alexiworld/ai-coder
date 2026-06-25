@@ -56,17 +56,28 @@ class SimpleTestResponse(BaseModel):
     response: str
 
 
-def _apply_updates(conn, username: str, updates: BoardUpdate) -> None:
-    """Apply all board mutations atomically — rolls back everything on any failure."""
+def _apply_updates(
+    conn, username: str, updates: BoardUpdate, board_id: Optional[int] = None
+) -> None:
     try:
         for card in updates.add_cards:
-            add_card(conn, username, card.column_id, card.title, card.details, commit=False)
+            add_card(
+                conn, username, card.column_id, card.title, card.details,
+                board_id=board_id, commit=False,
+            )
         for card in updates.move_cards:
-            move_card(conn, username, card.card_id, card.target_column_id, commit=False)
+            move_card(
+                conn, username, card.card_id, card.target_column_id,
+                board_id=board_id, commit=False,
+            )
         for card in updates.edit_cards:
-            edit_card(conn, username, card.card_id, title=card.title, details=card.details, commit=False)
+            edit_card(
+                conn, username, card.card_id,
+                title=card.title, details=card.details,
+                board_id=board_id, commit=False,
+            )
         for card_id in updates.delete_card_ids:
-            delete_card(conn, username, card_id, commit=False)
+            delete_card(conn, username, card_id, board_id=board_id, commit=False)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -100,6 +111,15 @@ def ai_test(
     return SimpleTestResponse(response=result)
 
 
+def _to_board_out(data: dict) -> BoardOut:
+    return BoardOut(
+        id=data["id"],
+        name=data["name"],
+        columns=[ColumnOut(**c) for c in data["columns"]],
+        cards={k: CardOut(**v) for k, v in data["cards"].items()},
+    )
+
+
 @router.post("/chat", response_model=ChatResponse)
 def ai_chat(
     request: ChatRequest,
@@ -114,12 +134,13 @@ def ai_chat(
 
     conn = get_connection()
     try:
-        board_data = get_board(conn, username)
+        board_data = get_board(conn, username, request.board_id)
 
-        if username not in conversations:
-            conversations[username] = []
+        conv_key = f"{username}:{request.board_id or 'default'}"
+        if conv_key not in conversations:
+            conversations[conv_key] = []
 
-        conversations[username].append({"role": "user", "content": request.message})
+        conversations[conv_key].append({"role": "user", "content": request.message})
 
         board_context = json.dumps(board_data, indent=2)
         context_message = {
@@ -127,10 +148,9 @@ def ai_chat(
             "content": f"Here is the current board state (in JSON):\n{board_context}\n\nUser message: {request.message}",
         }
 
-        # Build full message list: system prompt + history (excluding last user msg) + context-wrapped latest msg
         ai_messages = (
             [{"role": "system", "content": SYSTEM_PROMPT}]
-            + conversations[username][:-1]
+            + conversations[conv_key][:-1]
             + [context_message]
         )
 
@@ -157,20 +177,14 @@ def ai_chat(
             )
 
         if parsed.board_updates:
-            _apply_updates(conn, username, parsed.board_updates)
+            _apply_updates(conn, username, parsed.board_updates, board_id=request.board_id)
 
-        conversations[username].append({"role": "assistant", "content": parsed.message})
+        conversations[conv_key].append({"role": "assistant", "content": parsed.message})
 
-        if len(conversations[username]) > 20:
-            conversations[username] = conversations[username][-20:]
+        if len(conversations[conv_key]) > 20:
+            conversations[conv_key] = conversations[conv_key][-20:]
 
-        updated_board = get_board(conn, username)
-
-        board_out = BoardOut(
-            columns=[ColumnOut(**c) for c in updated_board["columns"]],
-            cards={k: CardOut(**v) for k, v in updated_board["cards"].items()},
-        )
-
-        return ChatResponse(message=parsed.message, board=board_out)
+        updated_board = get_board(conn, username, request.board_id)
+        return ChatResponse(message=parsed.message, board=_to_board_out(updated_board))
     finally:
         conn.close()

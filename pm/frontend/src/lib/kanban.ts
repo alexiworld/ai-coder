@@ -2,19 +2,30 @@ export type Card = {
   id: string;
   title: string;
   details: string;
+  priority: "low" | "medium" | "high" | "critical";
+  due_date: string | null;
 };
 
 export type Column = {
   id: string;
   title: string;
   cardIds: string[];
+  color: string | null;
 };
 
 export type BoardData = {
+  id: number;
+  name: string;
   columns: Column[];
   cards: Record<string, Card>;
 };
 
+export const PRIORITY_CONFIG = {
+  low: { label: "Low", color: "#10b981" },
+  medium: { label: "Medium", color: "#f59e0b" },
+  high: { label: "High", color: "#f97316" },
+  critical: { label: "Critical", color: "#ef4444" },
+} as const;
 
 const isColumnId = (columns: Column[], id: string) =>
   columns.some((column) => column.id === id);
@@ -29,7 +40,7 @@ const findColumnId = (columns: Column[], id: string) => {
 export const moveCard = (
   columns: Column[],
   activeId: string,
-  overId: string
+  overId: string,
 ): Column[] => {
   const activeColumnId = findColumnId(columns, activeId);
   const overColumnId = findColumnId(columns, overId);
@@ -50,13 +61,13 @@ export const moveCard = (
   if (activeColumnId === overColumnId) {
     if (isOverColumn) {
       const nextCardIds = activeColumn.cardIds.filter(
-        (cardId) => cardId !== activeId
+        (cardId) => cardId !== activeId,
       );
       nextCardIds.push(activeId);
       return columns.map((column) =>
         column.id === activeColumnId
           ? { ...column, cardIds: nextCardIds }
-          : column
+          : column,
       );
     }
 
@@ -74,7 +85,7 @@ export const moveCard = (
     return columns.map((column) =>
       column.id === activeColumnId
         ? { ...column, cardIds: nextCardIds }
-        : column
+        : column,
     );
   }
 
@@ -105,4 +116,3 @@ export const moveCard = (
     return column;
   });
 };
-

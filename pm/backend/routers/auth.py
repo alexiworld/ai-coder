@@ -3,13 +3,19 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from backend.database import get_connection, init_db
-from backend.repository import create_session, get_user_by_session, delete_session, ensure_user
+from backend.repository import (
+    create_session,
+    get_user_by_session,
+    delete_session,
+    ensure_user,
+    authenticate_user,
+    change_password,
+    get_user_id,
+)
+from backend.models import ChangePasswordRequest
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 security = HTTPBearer()
-
-# For MVP: any username/password combination works
-# In production, passwords would be hashed and verified
 
 
 class LoginRequest(BaseModel):
@@ -51,7 +57,22 @@ def login(request: LoginRequest):
     conn = get_connection()
     try:
         init_db(conn)
-        user_id = ensure_user(conn, request.username)
+
+        # Try to authenticate existing user first
+        user_id = authenticate_user(conn, request.username, request.password)
+        if user_id is None:
+            # Check if user exists at all (new user creation flow)
+            try:
+                existing_id = get_user_id(conn, request.username)
+                # User exists but password didn't match
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid password",
+                )
+            except ValueError:
+                # User doesn't exist — create new account
+                user_id = ensure_user(conn, request.username, request.password)
+
         token = create_session(conn, user_id)
         return LoginResponse(token=token, username=request.username)
     finally:
@@ -71,3 +92,27 @@ def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
 @router.get("/me", response_model=MeResponse)
 def me(username: str = Depends(get_current_user)):
     return MeResponse(username=username)
+
+
+@router.put("/me/password")
+def update_password(
+    request: ChangePasswordRequest,
+    username: str = Depends(get_current_user),
+):
+    conn = get_connection()
+    try:
+        user_id = authenticate_user(conn, username, request.current_password)
+        if user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Current password is incorrect",
+            )
+        if len(request.new_password) < 6:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="New password must be at least 6 characters",
+            )
+        change_password(conn, username, request.new_password)
+        return {"status": "ok"}
+    finally:
+        conn.close()

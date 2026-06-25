@@ -13,39 +13,57 @@ import {
 } from "@dnd-kit/core";
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
+import { BoardSelector } from "@/components/BoardSelector";
 import {
   moveCard as moveCardUtil,
   type BoardData,
   type Card,
-  type Column,
 } from "@/lib/kanban";
 import { logout, getUsername } from "@/lib/auth";
 import { useRouter } from "next/navigation";
 import {
   fetchBoard,
+  listBoards,
+  createBoard,
+  renameBoard,
+  deleteBoard,
   renameColumn as apiRenameColumn,
+  addColumn as apiAddColumn,
+  deleteColumn as apiDeleteColumn,
   addCard as apiAddCard,
   moveCard as apiMoveCard,
   deleteCard as apiDeleteCard,
   type BoardResponse,
+  type BoardSummary,
 } from "@/lib/api";
 import { AIChatSidebar } from "@/components/AIChatSidebar";
 
 const EMPTY_BOARD: BoardData = {
+  id: 0,
+  name: "My Board",
   columns: [],
   cards: {},
 };
 
 const convertApiResponse = (data: BoardResponse): BoardData => ({
+  id: data.id,
+  name: data.name,
   columns: data.columns.map((col) => ({
     id: col.id,
     title: col.title,
     cardIds: col.cardIds,
+    color: col.color,
   })),
   cards: Object.fromEntries(
     Object.entries(data.cards).map(([id, card]) => [
       id,
-      { id: card.id, title: card.title, details: card.details },
+      {
+        id: card.id,
+        title: card.title,
+        details: card.details,
+        priority: card.priority,
+        due_date: card.due_date,
+      },
     ]),
   ),
 });
@@ -55,22 +73,40 @@ export const KanbanBoard = () => {
   const routerRef = useRef(router);
   routerRef.current = router;
   const renameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [board, setBoard] = useState<BoardData>(EMPTY_BOARD);
+  const [boards, setBoards] = useState<BoardSummary[]>([]);
+  const [activeBoardId, setActiveBoardId] = useState<number | undefined>(undefined);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [aiSidebarOpen, setAiSidebarOpen] = useState(false);
 
-  const loadBoard = useCallback(async () => {
+  const loadBoards = useCallback(async () => {
+    try {
+      const data = await listBoards();
+      if (data === null) {
+        routerRef.current.replace("/login");
+        return;
+      }
+      setBoards(data);
+      return data;
+    } catch {
+      // Non-fatal: board list is supplementary to the main board
+    }
+  }, []);
+
+  const loadBoard = useCallback(async (boardId?: number) => {
     try {
       setIsLoading(true);
       setError(null);
-      const data = await fetchBoard();
+      const data = await fetchBoard(boardId);
       if (data === null) {
         routerRef.current.replace("/login");
         return;
       }
       setBoard(convertApiResponse(data));
+      setActiveBoardId(data.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load board");
     } finally {
@@ -79,8 +115,12 @@ export const KanbanBoard = () => {
   }, []);
 
   useEffect(() => {
-    loadBoard();
-  }, [loadBoard]);
+    const init = async () => {
+      await loadBoards();
+      await loadBoard();
+    };
+    init();
+  }, [loadBoard, loadBoards]);
 
   useEffect(() => {
     return () => {
@@ -96,6 +136,41 @@ export const KanbanBoard = () => {
 
   const cardsById = useMemo(() => board.cards, [board.cards]);
 
+  const handleSelectBoard = async (id: number) => {
+    await loadBoard(id);
+  };
+
+  const handleCreateBoard = async (name: string) => {
+    const newBoard = await createBoard(name);
+    if (newBoard === null) {
+      routerRef.current.replace("/login");
+      return;
+    }
+    await loadBoards();
+    await loadBoard(newBoard.id);
+  };
+
+  const handleRenameBoard = async (id: number, name: string) => {
+    await renameBoard(id, name);
+    await loadBoards();
+    if (id === activeBoardId) {
+      setBoard((prev) => ({ ...prev, name }));
+    }
+  };
+
+  const handleDeleteBoard = async (id: number) => {
+    if (!window.confirm("Delete this board and all its cards?")) return;
+    try {
+      await deleteBoard(id);
+      await loadBoards();
+      if (id === activeBoardId) {
+        await loadBoard();
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Cannot delete board");
+    }
+  };
+
   const handleDragStart = (event: DragStartEvent) => {
     setActiveCardId(event.active.id as string);
   };
@@ -104,17 +179,11 @@ export const KanbanBoard = () => {
     const { active, over } = event;
     setActiveCardId(null);
 
-    if (!over || active.id === over.id) {
-      return;
-    }
+    if (!over || active.id === over.id) return;
 
     setBoard((prev) => ({
       ...prev,
-      columns: moveCardUtil(
-        prev.columns,
-        active.id as string,
-        over.id as string,
-      ),
+      columns: moveCardUtil(prev.columns, active.id as string, over.id as string),
     }));
 
     const overColId =
@@ -123,9 +192,9 @@ export const KanbanBoard = () => {
     const targetColId = isColumn ? (over.id as string) : overColId;
 
     try {
-      await apiMoveCard(active.id as string, targetColId);
+      await apiMoveCard(active.id as string, targetColId, undefined, activeBoardId);
     } catch {
-      loadBoard();
+      loadBoard(activeBoardId);
     }
   };
 
@@ -140,20 +209,46 @@ export const KanbanBoard = () => {
     if (renameTimerRef.current) clearTimeout(renameTimerRef.current);
     renameTimerRef.current = setTimeout(async () => {
       try {
-        await apiRenameColumn(columnId, title);
+        await apiRenameColumn(columnId, title, activeBoardId);
       } catch {
-        loadBoard();
+        loadBoard(activeBoardId);
       }
     }, 400);
   };
 
-  const handleAddCard = async (
-    columnId: string,
-    title: string,
-    details: string,
-  ) => {
+  const handleAddColumn = async () => {
+    const title = window.prompt("New column name:");
+    if (!title?.trim()) return;
     try {
-      const result = await apiAddCard(columnId, title, details);
+      const result = await apiAddColumn(title.trim(), undefined, activeBoardId);
+      if (result === null) {
+        routerRef.current.replace("/login");
+        return;
+      }
+      await loadBoard(activeBoardId);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to add column");
+    }
+  };
+
+  const handleDeleteColumn = async (columnId: string) => {
+    const col = board.columns.find((c) => c.id === columnId);
+    const cardCount = col?.cardIds.length ?? 0;
+    const msg = cardCount > 0
+      ? `Delete column "${col?.title}" and its ${cardCount} card(s)?`
+      : `Delete column "${col?.title}"?`;
+    if (!window.confirm(msg)) return;
+    try {
+      await apiDeleteColumn(columnId, activeBoardId);
+      await loadBoard(activeBoardId);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to delete column");
+    }
+  };
+
+  const handleAddCard = async (columnId: string, title: string, details: string) => {
+    try {
+      const result = await apiAddCard(columnId, title, details, "medium", undefined, activeBoardId);
       if (result === null) {
         routerRef.current.replace("/login");
         return;
@@ -163,6 +258,8 @@ export const KanbanBoard = () => {
         id: result.card_id,
         title,
         details,
+        priority: "medium",
+        due_date: null,
       };
       setBoard((prev) => ({
         ...prev,
@@ -173,8 +270,8 @@ export const KanbanBoard = () => {
             : column,
         ),
       }));
-    } catch (e) {
-      loadBoard();
+    } catch {
+      loadBoard(activeBoardId);
     }
   };
 
@@ -192,9 +289,9 @@ export const KanbanBoard = () => {
     }));
 
     try {
-      await apiDeleteCard(cardId);
+      await apiDeleteCard(cardId, activeBoardId);
     } catch {
-      loadBoard();
+      loadBoard(activeBoardId);
     }
   };
 
@@ -224,7 +321,7 @@ export const KanbanBoard = () => {
           <p className="text-sm text-red-600">{error}</p>
           <button
             type="button"
-            onClick={loadBoard}
+            onClick={() => loadBoard(activeBoardId)}
             className="mt-4 rounded-full bg-[var(--secondary-purple)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white"
           >
             Retry
@@ -251,9 +348,17 @@ export const KanbanBoard = () => {
               <h1 className="font-display text-base font-semibold text-[var(--navy-dark)]">
                 Kanban Studio
               </h1>
-              <span className="hidden text-xs font-semibold uppercase tracking-[0.25em] text-[var(--gray-text)] sm:block">
-                — Single Board
-              </span>
+              {boards.length > 0 && (
+                <BoardSelector
+                  boards={boards}
+                  currentBoardId={activeBoardId ?? board.id}
+                  currentBoardName={board.name}
+                  onSelectBoard={handleSelectBoard}
+                  onCreateBoard={handleCreateBoard}
+                  onDeleteBoard={handleDeleteBoard}
+                  onRenameBoard={handleRenameBoard}
+                />
+              )}
             </div>
             <div className="flex items-center gap-2">
               <span className="hidden text-xs font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)] sm:block">
@@ -313,7 +418,7 @@ export const KanbanBoard = () => {
                 onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
               >
-                <section className="grid gap-3 lg:grid-cols-5">
+                <section className="grid gap-3" style={{ gridTemplateColumns: `repeat(${board.columns.length + 1}, minmax(200px, 1fr))` }}>
                   {board.columns.map((column, index) => (
                     <KanbanColumn
                       key={column.id}
@@ -325,8 +430,23 @@ export const KanbanBoard = () => {
                       onRename={handleRenameColumn}
                       onAddCard={handleAddCard}
                       onDeleteCard={handleDeleteCard}
+                      onDeleteColumn={handleDeleteColumn}
                     />
                   ))}
+                  {/* Add column button */}
+                  <div className="flex min-h-[120px] items-start justify-center pt-3">
+                    <button
+                      type="button"
+                      onClick={handleAddColumn}
+                      className="flex items-center gap-1.5 rounded-full border border-dashed border-[var(--stroke)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--primary-blue)] transition hover:border-[var(--primary-blue)]"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="12" y1="5" x2="12" y2="19" />
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                      </svg>
+                      Add column
+                    </button>
+                  </div>
                 </section>
                 <DragOverlay>
                   {activeCard ? (
@@ -338,17 +458,16 @@ export const KanbanBoard = () => {
               </DndContext>
             </div>
 
-            {/* AI Chat Sidebar */}
             <AIChatSidebar
               isOpen={aiSidebarOpen}
               onClose={() => setAiSidebarOpen(false)}
               onBoardUpdate={handleBoardUpdate}
+              boardId={activeBoardId}
             />
           </div>
         </div>
       </main>
 
-      {/* Floating button to open AI chat when sidebar is closed */}
       {!aiSidebarOpen && (
         <button
           type="button"

@@ -2,11 +2,21 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import clsx from "clsx";
 import type { Card } from "@/lib/kanban";
+import { PRIORITY_CONFIG } from "@/lib/kanban";
 
 type KanbanCardProps = {
   card: Card;
   onDelete: (cardId: string) => void;
 };
+
+function formatDueDate(due: string): { label: string; overdue: boolean } {
+  const date = new Date(due + "T00:00:00");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const overdue = date < today;
+  const label = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return { label, overdue };
+}
 
 export const KanbanCard = ({ card, onDelete }: KanbanCardProps) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -17,6 +27,10 @@ export const KanbanCard = ({ card, onDelete }: KanbanCardProps) => {
     transition,
   };
 
+  const priorityCfg = PRIORITY_CONFIG[card.priority] ?? PRIORITY_CONFIG.medium;
+  const showPriority = card.priority !== "medium";
+  const dueDateInfo = card.due_date ? formatDueDate(card.due_date) : null;
+
   return (
     <article
       ref={setNodeRef}
@@ -24,7 +38,7 @@ export const KanbanCard = ({ card, onDelete }: KanbanCardProps) => {
       className={clsx(
         "group rounded-2xl border border-transparent bg-white px-3 py-3 shadow-[0_4px_16px_rgba(3,33,71,0.07)]",
         "transition-all duration-150 hover:shadow-[0_8px_24px_rgba(3,33,71,0.12)]",
-        isDragging && "opacity-60 shadow-[0_18px_32px_rgba(3,33,71,0.16)]"
+        isDragging && "opacity-60 shadow-[0_18px_32px_rgba(3,33,71,0.16)]",
       )}
       {...attributes}
       {...listeners}
@@ -39,6 +53,38 @@ export const KanbanCard = ({ card, onDelete }: KanbanCardProps) => {
             <p className="mt-1 text-xs leading-5 text-[var(--gray-text)]">
               {card.details}
             </p>
+          )}
+          {(showPriority || dueDateInfo) && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {showPriority && (
+                <span
+                  className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
+                  style={{ backgroundColor: priorityCfg.color }}
+                  data-testid={`priority-${card.priority}`}
+                >
+                  {priorityCfg.label}
+                </span>
+              )}
+              {dueDateInfo && (
+                <span
+                  className={clsx(
+                    "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+                    dueDateInfo.overdue
+                      ? "bg-red-100 text-red-600"
+                      : "bg-gray-100 text-[var(--gray-text)]",
+                  )}
+                  data-testid="due-date"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                    <line x1="16" y1="2" x2="16" y2="6" />
+                    <line x1="8" y1="2" x2="8" y2="6" />
+                    <line x1="3" y1="10" x2="21" y2="10" />
+                  </svg>
+                  {dueDateInfo.label}
+                </span>
+              )}
+            </div>
           )}
         </div>
         <button

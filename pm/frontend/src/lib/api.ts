@@ -18,7 +18,6 @@ async function authFetch(path: string, options: RequestInit = {}) {
   });
 
   if (res.status === 401) {
-    // Token expired - will redirect to login via AuthGuard
     return null;
   }
 
@@ -34,41 +33,138 @@ export type CardData = {
   id: string;
   title: string;
   details: string;
+  priority: "low" | "medium" | "high" | "critical";
+  due_date: string | null;
 };
 
 export type ColumnData = {
   id: string;
   title: string;
   cardIds: string[];
+  color: string | null;
 };
 
 export type BoardResponse = {
+  id: number;
+  name: string;
   columns: ColumnData[];
   cards: Record<string, CardData>;
 };
 
-export async function fetchBoard(): Promise<BoardResponse | null> {
+export type BoardSummary = {
+  id: number;
+  name: string;
+  created_at: string;
+  column_count: number;
+  card_count: number;
+};
+
+// --- Board management ---
+
+export async function fetchBoard(boardId?: number): Promise<BoardResponse | null> {
+  if (boardId !== undefined) {
+    return authFetch(`/api/boards/${boardId}`);
+  }
   return authFetch("/api/board");
 }
+
+export async function listBoards(): Promise<BoardSummary[] | null> {
+  return authFetch("/api/boards");
+}
+
+export async function createBoard(name: string): Promise<BoardResponse | null> {
+  return authFetch("/api/boards", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function renameBoard(boardId: number, name: string): Promise<unknown> {
+  return authFetch(`/api/boards/${boardId}/name`, {
+    method: "PUT",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function deleteBoard(boardId: number): Promise<unknown> {
+  return authFetch(`/api/boards/${boardId}`, { method: "DELETE" });
+}
+
+// --- Column management ---
 
 export async function renameColumn(
   columnId: string,
   title: string,
+  boardId?: number,
 ): Promise<unknown> {
+  if (boardId !== undefined) {
+    return authFetch(`/api/boards/${boardId}/columns/${columnId}/rename`, {
+      method: "PUT",
+      body: JSON.stringify({ title }),
+    });
+  }
   return authFetch(`/api/board/columns/${columnId}/rename`, {
     method: "PUT",
     body: JSON.stringify({ title }),
   });
 }
 
+export async function addColumn(
+  title: string,
+  color?: string,
+  boardId?: number,
+): Promise<{ column_id: string } | null> {
+  if (boardId !== undefined) {
+    return authFetch(`/api/boards/${boardId}/columns`, {
+      method: "POST",
+      body: JSON.stringify({ title, color }),
+    });
+  }
+  return authFetch("/api/board/columns", {
+    method: "POST",
+    body: JSON.stringify({ title, color }),
+  });
+}
+
+export async function deleteColumn(
+  columnId: string,
+  boardId?: number,
+): Promise<unknown> {
+  if (boardId !== undefined) {
+    return authFetch(`/api/boards/${boardId}/columns/${columnId}`, {
+      method: "DELETE",
+    });
+  }
+  return authFetch(`/api/board/columns/${columnId}`, { method: "DELETE" });
+}
+
+// --- Card management ---
+
 export async function addCard(
   columnId: string,
   title: string,
   details: string,
+  priority: string = "medium",
+  dueDate?: string,
+  boardId?: number,
 ): Promise<{ card_id: string } | null> {
+  const body: Record<string, unknown> = {
+    column_id: columnId,
+    title,
+    details,
+    priority,
+  };
+  if (dueDate) body.due_date = dueDate;
+
+  if (boardId !== undefined) {
+    return authFetch(`/api/boards/${boardId}/cards`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
   return authFetch("/api/board/cards", {
     method: "POST",
-    body: JSON.stringify({ column_id: columnId, title, details }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -76,29 +172,58 @@ export async function moveCard(
   cardId: string,
   targetColumnId: string,
   position?: number,
+  boardId?: number,
 ): Promise<unknown> {
+  const body: Record<string, unknown> = { target_column_id: targetColumnId };
+  if (position !== undefined) body["position"] = position;
+
+  if (boardId !== undefined) {
+    return authFetch(`/api/boards/${boardId}/cards/${cardId}/move`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+  }
   return authFetch(`/api/board/cards/${cardId}/move`, {
     method: "PUT",
-    body: JSON.stringify({
-      target_column_id: targetColumnId,
-      position,
-    }),
+    body: JSON.stringify(body),
   });
 }
 
-export async function deleteCard(cardId: string): Promise<unknown> {
-  return authFetch(`/api/board/cards/${cardId}`, {
-    method: "DELETE",
-  });
+export async function deleteCard(cardId: string, boardId?: number): Promise<unknown> {
+  if (boardId !== undefined) {
+    return authFetch(`/api/boards/${boardId}/cards/${cardId}`, { method: "DELETE" });
+  }
+  return authFetch(`/api/board/cards/${cardId}`, { method: "DELETE" });
 }
 
 export async function editCard(
   cardId: string,
-  title?: string,
-  details?: string,
+  fields: { title?: string; details?: string; priority?: string; due_date?: string },
+  boardId?: number,
 ): Promise<unknown> {
+  if (boardId !== undefined) {
+    return authFetch(`/api/boards/${boardId}/cards/${cardId}`, {
+      method: "PUT",
+      body: JSON.stringify(fields),
+    });
+  }
   return authFetch(`/api/board/cards/${cardId}`, {
     method: "PUT",
-    body: JSON.stringify({ title, details }),
+    body: JSON.stringify(fields),
+  });
+}
+
+// --- Auth ---
+
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<unknown> {
+  return authFetch("/api/auth/me/password", {
+    method: "PUT",
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
   });
 }

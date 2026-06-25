@@ -8,7 +8,10 @@ export type ChatResult = {
   board: BoardResponse | null;
 };
 
-export async function sendChatMessage(message: string): Promise<ChatResult | null> {
+export async function sendChatMessage(
+  message: string,
+  boardId?: number,
+): Promise<ChatResult | null> {
   const token = getToken();
   if (!token) return null;
 
@@ -18,7 +21,7 @@ export async function sendChatMessage(message: string): Promise<ChatResult | nul
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ message, board_id: boardId }),
   });
 
   if (res.status === 401) return null;

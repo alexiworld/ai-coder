@@ -3,7 +3,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 import sqlite3
 
-from backend.database import get_connection, init_db, ensure_user
+from backend.database import get_connection, init_db, ensure_user, verify_password, hash_password
 
 TOKEN_EXPIRE_HOURS = 24
 
@@ -46,11 +46,32 @@ def delete_session(conn: sqlite3.Connection, token: str) -> None:
     conn.commit()
 
 
+def authenticate_user(conn: sqlite3.Connection, username: str, password: str) -> Optional[int]:
+    """Authenticate and return user_id, or None on failure."""
+    cursor = conn.execute(
+        "SELECT id, password_hash FROM users WHERE username = ?", (username,)
+    )
+    row = cursor.fetchone()
+    if not row:
+        return None
+    if not verify_password(password, row["password_hash"]):
+        return None
+    return row["id"]
+
+
+def change_password(conn: sqlite3.Connection, username: str, new_password: str) -> None:
+    new_hash = hash_password(new_password)
+    conn.execute(
+        "UPDATE users SET password_hash = ? WHERE username = ?",
+        (new_hash, username),
+    )
+    conn.commit()
+
+
 # --- Internal helpers ---
 
 
 def get_user_id(conn: sqlite3.Connection, username: str) -> int:
-    """Fetch the user_id for an authenticated user. Raises if not found."""
     cursor = conn.execute("SELECT id FROM users WHERE username = ?", (username,))
     row = cursor.fetchone()
     if not row:
@@ -58,20 +79,104 @@ def get_user_id(conn: sqlite3.Connection, username: str) -> int:
     return row["id"]
 
 
-# --- Board CRUD ---
+def _get_default_board_id(conn: sqlite3.Connection, user_id: int) -> Optional[int]:
+    cursor = conn.execute(
+        "SELECT id FROM boards WHERE user_id = ? ORDER BY id LIMIT 1", (user_id,)
+    )
+    row = cursor.fetchone()
+    return row["id"] if row else None
 
 
-def get_board(conn: sqlite3.Connection, username: str) -> dict:
+def _assert_board_owner(conn: sqlite3.Connection, user_id: int, board_id: int) -> None:
+    cursor = conn.execute(
+        "SELECT id FROM boards WHERE id = ? AND user_id = ?", (board_id, user_id)
+    )
+    if not cursor.fetchone():
+        raise ValueError(f"Board {board_id} not found or not owned by user")
+
+
+# --- Board Management ---
+
+
+def list_boards(conn: sqlite3.Connection, username: str) -> list[dict]:
+    user_id = get_user_id(conn, username)
+    cursor = conn.execute(
+        """SELECT b.id, b.name, b.created_at,
+                  COUNT(DISTINCT col.id) AS column_count,
+                  COUNT(DISTINCT c.id) AS card_count
+           FROM boards b
+           LEFT JOIN columns col ON col.board_id = b.id
+           LEFT JOIN cards c ON c.column_id = col.id
+           WHERE b.user_id = ?
+           GROUP BY b.id
+           ORDER BY b.id""",
+        (user_id,),
+    )
+    return [dict(row) for row in cursor.fetchall()]
+
+
+def create_board(conn: sqlite3.Connection, username: str, name: str) -> int:
+    user_id = get_user_id(conn, username)
+    cursor = conn.execute(
+        "INSERT INTO boards (user_id, name) VALUES (?, ?)", (user_id, name)
+    )
+    board_id = cursor.lastrowid
+    from backend.database import _DEFAULT_COLUMNS
+    for col_id, title, position in _DEFAULT_COLUMNS:
+        conn.execute(
+            "INSERT INTO columns (board_id, column_id, title, position) VALUES (?, ?, ?, ?)",
+            (board_id, col_id, title, position),
+        )
+    conn.commit()
+    return board_id
+
+
+def rename_board(conn: sqlite3.Connection, username: str, board_id: int, name: str) -> bool:
+    user_id = get_user_id(conn, username)
+    cursor = conn.execute(
+        "UPDATE boards SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?",
+        (name, board_id, user_id),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def delete_board(conn: sqlite3.Connection, username: str, board_id: int) -> bool:
+    user_id = get_user_id(conn, username)
+    # Prevent deleting the last board
+    cursor = conn.execute("SELECT COUNT(*) AS cnt FROM boards WHERE user_id = ?", (user_id,))
+    if cursor.fetchone()["cnt"] <= 1:
+        raise ValueError("Cannot delete the only board")
+    cursor = conn.execute(
+        "DELETE FROM boards WHERE id = ? AND user_id = ?", (board_id, user_id)
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+# --- Board CRUD (columns and cards) ---
+
+
+def get_board(conn: sqlite3.Connection, username: str, board_id: Optional[int] = None) -> dict:
     user_id = get_user_id(conn, username)
 
+    if board_id is None:
+        board_id = _get_default_board_id(conn, user_id)
+        if board_id is None:
+            return {"id": 0, "name": "My Board", "columns": [], "cards": {}}
+    else:
+        _assert_board_owner(conn, user_id, board_id)
+
+    board_row = conn.execute("SELECT id, name FROM boards WHERE id = ?", (board_id,)).fetchone()
+
     cursor = conn.execute(
-        """SELECT c.column_id, c.title AS column_title, c.position AS col_position,
-                  cd.card_id, cd.title, cd.details, cd.position AS card_position
+        """SELECT c.column_id, c.title AS column_title, c.position AS col_position, c.color,
+                  cd.card_id, cd.title, cd.details, cd.priority, cd.due_date, cd.position AS card_position
            FROM columns c
            LEFT JOIN cards cd ON cd.column_id = c.id
-           WHERE c.board_id = (SELECT id FROM boards WHERE user_id = ?)
+           WHERE c.board_id = ?
            ORDER BY c.position, cd.position""",
-        (user_id,),
+        (board_id,),
     )
     rows = cursor.fetchall()
 
@@ -85,6 +190,7 @@ def get_board(conn: sqlite3.Connection, username: str) -> dict:
                 "id": col_id,
                 "title": row["column_title"],
                 "cardIds": [],
+                "color": row["color"],
             }
 
         card_id = row["card_id"]
@@ -94,20 +200,79 @@ def get_board(conn: sqlite3.Connection, username: str) -> dict:
                 "id": card_id,
                 "title": row["title"],
                 "details": row["details"],
+                "priority": row["priority"] or "medium",
+                "due_date": row["due_date"],
             }
 
     return {
+        "id": board_row["id"],
+        "name": board_row["name"],
         "columns": list(columns_map.values()),
         "cards": cards_map,
     }
 
 
-def rename_column(conn: sqlite3.Connection, username: str, column_id: str, title: str) -> bool:
+def rename_column(
+    conn: sqlite3.Connection,
+    username: str,
+    column_id: str,
+    title: str,
+    board_id: Optional[int] = None,
+) -> bool:
     user_id = get_user_id(conn, username)
+    if board_id is None:
+        board_id = _get_default_board_id(conn, user_id)
     cursor = conn.execute(
         """UPDATE columns SET title = ?
-           WHERE column_id = ? AND board_id = (SELECT id FROM boards WHERE user_id = ?)""",
-        (title, column_id, user_id),
+           WHERE column_id = ? AND board_id = (SELECT id FROM boards WHERE id = ? AND user_id = ?)""",
+        (title, column_id, board_id, user_id),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def add_column(
+    conn: sqlite3.Connection,
+    username: str,
+    title: str,
+    board_id: Optional[int] = None,
+    color: Optional[str] = None,
+) -> Optional[str]:
+    user_id = get_user_id(conn, username)
+    if board_id is None:
+        board_id = _get_default_board_id(conn, user_id)
+    if board_id is None:
+        return None
+    _assert_board_owner(conn, user_id, board_id)
+
+    cursor = conn.execute(
+        "SELECT COALESCE(MAX(position), -1) + 1 AS next_pos FROM columns WHERE board_id = ?",
+        (board_id,),
+    )
+    next_pos = cursor.fetchone()["next_pos"]
+    col_id = f"col-{secrets.token_hex(4)}"
+
+    conn.execute(
+        "INSERT INTO columns (board_id, column_id, title, position, color) VALUES (?, ?, ?, ?, ?)",
+        (board_id, col_id, title, next_pos, color),
+    )
+    conn.commit()
+    return col_id
+
+
+def delete_column(
+    conn: sqlite3.Connection,
+    username: str,
+    column_id: str,
+    board_id: Optional[int] = None,
+) -> bool:
+    user_id = get_user_id(conn, username)
+    if board_id is None:
+        board_id = _get_default_board_id(conn, user_id)
+    cursor = conn.execute(
+        """DELETE FROM columns
+           WHERE column_id = ? AND board_id = (SELECT id FROM boards WHERE id = ? AND user_id = ?)""",
+        (column_id, board_id, user_id),
     )
     conn.commit()
     return cursor.rowcount > 0
@@ -119,31 +284,36 @@ def add_card(
     column_id: str,
     title: str,
     details: str,
+    priority: str = "medium",
+    due_date: Optional[str] = None,
+    board_id: Optional[int] = None,
     *,
     commit: bool = True,
 ) -> Optional[str]:
     user_id = get_user_id(conn, username)
-    card_id = f"card-{secrets.token_hex(4)}"
+    if board_id is None:
+        board_id = _get_default_board_id(conn, user_id)
 
+    card_id = f"card-{secrets.token_hex(4)}"
     cursor = conn.execute(
         """SELECT col.id FROM columns col
            JOIN boards b ON b.id = col.board_id
-           WHERE col.column_id = ? AND b.user_id = ?""",
-        (column_id, user_id),
+           WHERE col.column_id = ? AND b.user_id = ? AND b.id = ?""",
+        (column_id, user_id, board_id),
     )
     col_row = cursor.fetchone()
     if not col_row:
         return None
 
     cursor = conn.execute(
-        "SELECT COALESCE(MAX(position), -1) + 1 as next_pos FROM cards WHERE column_id = ?",
+        "SELECT COALESCE(MAX(position), -1) + 1 AS next_pos FROM cards WHERE column_id = ?",
         (col_row["id"],),
     )
     next_pos = cursor.fetchone()["next_pos"]
 
     conn.execute(
-        "INSERT INTO cards (column_id, card_id, title, details, position) VALUES (?, ?, ?, ?, ?)",
-        (col_row["id"], card_id, title, details, next_pos),
+        "INSERT INTO cards (column_id, card_id, title, details, priority, due_date, position) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (col_row["id"], card_id, title, details, priority, due_date, next_pos),
     )
     if commit:
         conn.commit()
@@ -156,16 +326,19 @@ def move_card(
     card_id: str,
     target_column_id: str,
     position: Optional[int] = None,
+    board_id: Optional[int] = None,
     *,
     commit: bool = True,
 ) -> bool:
     user_id = get_user_id(conn, username)
+    if board_id is None:
+        board_id = _get_default_board_id(conn, user_id)
 
     cursor = conn.execute(
         """SELECT col.id FROM columns col
            JOIN boards b ON b.id = col.board_id
-           WHERE col.column_id = ? AND b.user_id = ?""",
-        (target_column_id, user_id),
+           WHERE col.column_id = ? AND b.user_id = ? AND b.id = ?""",
+        (target_column_id, user_id, board_id),
     )
     col_row = cursor.fetchone()
     if not col_row:
@@ -173,7 +346,7 @@ def move_card(
 
     if position is None:
         cursor = conn.execute(
-            "SELECT COALESCE(MAX(position), -1) + 1 as next_pos FROM cards WHERE column_id = ?",
+            "SELECT COALESCE(MAX(position), -1) + 1 AS next_pos FROM cards WHERE column_id = ?",
             (col_row["id"],),
         )
         position = cursor.fetchone()["next_pos"]
@@ -191,18 +364,21 @@ def delete_card(
     conn: sqlite3.Connection,
     username: str,
     card_id: str,
+    board_id: Optional[int] = None,
     *,
     commit: bool = True,
 ) -> bool:
     user_id = get_user_id(conn, username)
+    if board_id is None:
+        board_id = _get_default_board_id(conn, user_id)
 
     cursor = conn.execute(
         """DELETE FROM cards WHERE card_id = ? AND column_id IN (
                SELECT col.id FROM columns col
                JOIN boards b ON b.id = col.board_id
-               WHERE b.user_id = ?
+               WHERE b.user_id = ? AND b.id = ?
            )""",
-        (card_id, user_id),
+        (card_id, user_id, board_id),
     )
     if commit:
         conn.commit()
@@ -215,32 +391,42 @@ def edit_card(
     card_id: str,
     title: Optional[str] = None,
     details: Optional[str] = None,
+    priority: Optional[str] = None,
+    due_date: Optional[str] = None,
+    board_id: Optional[int] = None,
     *,
     commit: bool = True,
 ) -> bool:
     user_id = get_user_id(conn, username)
+    if board_id is None:
+        board_id = _get_default_board_id(conn, user_id)
 
     updates = []
-    params = []
+    params: list = []
     if title is not None:
         updates.append("title = ?")
         params.append(title)
     if details is not None:
         updates.append("details = ?")
         params.append(details)
+    if priority is not None:
+        updates.append("priority = ?")
+        params.append(priority)
+    if due_date is not None:
+        updates.append("due_date = ?")
+        params.append(due_date)
 
     if not updates:
         return False
 
-    params.append(card_id)
-    params.append(user_id)
+    params.extend([card_id, user_id, board_id])
 
     cursor = conn.execute(
         f"""UPDATE cards SET {', '.join(updates)}
            WHERE card_id = ? AND column_id IN (
                SELECT col.id FROM columns col
                JOIN boards b ON b.id = col.board_id
-               WHERE b.user_id = ?
+               WHERE b.user_id = ? AND b.id = ?
            )""",
         params,
     )
