@@ -21,7 +21,7 @@ test("adds a card to a column", async ({ page }) => {
   await firstColumn.getByPlaceholder("Card title").fill("Playwright card");
   await firstColumn.getByPlaceholder("Details").fill("Added via e2e.");
   await firstColumn.getByRole("button", { name: /add card/i }).click();
-  await expect(firstColumn.getByText("Playwright card")).toBeVisible();
+  await expect(firstColumn.locator('[data-testid^="card-"]').last().getByText("Playwright card")).toBeVisible();
 });
 
 test("moves a card between columns", async ({ page }) => {
@@ -31,9 +31,10 @@ test("moves a card between columns", async ({ page }) => {
   await firstColumn.getByRole("button", { name: /add a card/i }).click();
   await firstColumn.getByPlaceholder("Card title").fill("Move me");
   await firstColumn.getByRole("button", { name: /add card/i }).click();
-  await expect(firstColumn.getByText("Move me")).toBeVisible();
 
-  const card = firstColumn.locator('[data-testid^="card-"]').filter({ hasText: "Move me" });
+  const card = firstColumn.locator('[data-testid^="card-"]').filter({ hasText: "Move me" }).last();
+  await expect(card.getByText("Move me")).toBeVisible();
+  const cardTestId = await card.getAttribute("data-testid");
   const targetColumn = page.getByTestId("column-col-review");
 
   const cardBox = await card.boundingBox();
@@ -54,5 +55,5 @@ test("moves a card between columns", async ({ page }) => {
   );
   await page.mouse.up();
 
-  await expect(targetColumn.getByText("Move me")).toBeVisible();
+  await expect(targetColumn.locator(`[data-testid="${cardTestId}"]`)).toBeVisible();
 });

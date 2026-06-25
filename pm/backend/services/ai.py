@@ -17,15 +17,21 @@ def get_client() -> Optional[OpenAI]:
     )
 
 
-def call_ai(messages: list[dict], response_format: Optional[dict] = None) -> Optional[str]:
-    client = get_client()
+def call_ai(
+    messages: list[dict],
+    response_format: Optional[dict] = None,
+    *,
+    client: Optional[OpenAI] = None,
+) -> Optional[str]:
+    if client is None:
+        client = get_client()
     if client is None:
         return None
 
-    kwargs = {
+    kwargs: dict = {
         "model": MODEL,
         "messages": messages,
-        "max_tokens": 500,
+        "max_tokens": 1500,
     }
     if response_format:
         kwargs["response_format"] = response_format

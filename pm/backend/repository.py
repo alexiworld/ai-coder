@@ -7,6 +7,7 @@ from backend.database import get_connection, init_db, ensure_user
 
 TOKEN_EXPIRE_HOURS = 24
 
+
 # --- Session Management ---
 
 
@@ -45,11 +46,23 @@ def delete_session(conn: sqlite3.Connection, token: str) -> None:
     conn.commit()
 
 
+# --- Internal helpers ---
+
+
+def get_user_id(conn: sqlite3.Connection, username: str) -> int:
+    """Fetch the user_id for an authenticated user. Raises if not found."""
+    cursor = conn.execute("SELECT id FROM users WHERE username = ?", (username,))
+    row = cursor.fetchone()
+    if not row:
+        raise ValueError(f"User {username!r} not found")
+    return row["id"]
+
+
 # --- Board CRUD ---
 
 
 def get_board(conn: sqlite3.Connection, username: str) -> dict:
-    user_id = ensure_user(conn, username)
+    user_id = get_user_id(conn, username)
 
     cursor = conn.execute(
         """SELECT c.column_id, c.title AS column_title, c.position AS col_position,
@@ -90,7 +103,7 @@ def get_board(conn: sqlite3.Connection, username: str) -> dict:
 
 
 def rename_column(conn: sqlite3.Connection, username: str, column_id: str, title: str) -> bool:
-    user_id = ensure_user(conn, username)
+    user_id = get_user_id(conn, username)
     cursor = conn.execute(
         """UPDATE columns SET title = ?
            WHERE column_id = ? AND board_id = (SELECT id FROM boards WHERE user_id = ?)""",
@@ -100,11 +113,18 @@ def rename_column(conn: sqlite3.Connection, username: str, column_id: str, title
     return cursor.rowcount > 0
 
 
-def add_card(conn: sqlite3.Connection, username: str, column_id: str, title: str, details: str) -> Optional[str]:
-    user_id = ensure_user(conn, username)
+def add_card(
+    conn: sqlite3.Connection,
+    username: str,
+    column_id: str,
+    title: str,
+    details: str,
+    *,
+    commit: bool = True,
+) -> Optional[str]:
+    user_id = get_user_id(conn, username)
     card_id = f"card-{secrets.token_hex(4)}"
 
-    # Get the column row id
     cursor = conn.execute(
         """SELECT col.id FROM columns col
            JOIN boards b ON b.id = col.board_id
@@ -115,7 +135,6 @@ def add_card(conn: sqlite3.Connection, username: str, column_id: str, title: str
     if not col_row:
         return None
 
-    # Get next position
     cursor = conn.execute(
         "SELECT COALESCE(MAX(position), -1) + 1 as next_pos FROM cards WHERE column_id = ?",
         (col_row["id"],),
@@ -126,7 +145,8 @@ def add_card(conn: sqlite3.Connection, username: str, column_id: str, title: str
         "INSERT INTO cards (column_id, card_id, title, details, position) VALUES (?, ?, ?, ?, ?)",
         (col_row["id"], card_id, title, details, next_pos),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return card_id
 
 
@@ -136,10 +156,11 @@ def move_card(
     card_id: str,
     target_column_id: str,
     position: Optional[int] = None,
+    *,
+    commit: bool = True,
 ) -> bool:
-    user_id = ensure_user(conn, username)
+    user_id = get_user_id(conn, username)
 
-    # Find target column
     cursor = conn.execute(
         """SELECT col.id FROM columns col
            JOIN boards b ON b.id = col.board_id
@@ -161,12 +182,19 @@ def move_card(
         "UPDATE cards SET column_id = ?, position = ? WHERE card_id = ?",
         (col_row["id"], position, card_id),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return True
 
 
-def delete_card(conn: sqlite3.Connection, username: str, card_id: str) -> bool:
-    user_id = ensure_user(conn, username)
+def delete_card(
+    conn: sqlite3.Connection,
+    username: str,
+    card_id: str,
+    *,
+    commit: bool = True,
+) -> bool:
+    user_id = get_user_id(conn, username)
 
     cursor = conn.execute(
         """DELETE FROM cards WHERE card_id = ? AND column_id IN (
@@ -176,7 +204,8 @@ def delete_card(conn: sqlite3.Connection, username: str, card_id: str) -> bool:
            )""",
         (card_id, user_id),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return cursor.rowcount > 0
 
 
@@ -186,8 +215,10 @@ def edit_card(
     card_id: str,
     title: Optional[str] = None,
     details: Optional[str] = None,
+    *,
+    commit: bool = True,
 ) -> bool:
-    user_id = ensure_user(conn, username)
+    user_id = get_user_id(conn, username)
 
     updates = []
     params = []
@@ -213,5 +244,6 @@ def edit_card(
            )""",
         params,
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return cursor.rowcount > 0

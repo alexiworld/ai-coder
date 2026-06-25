@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from backend.database import get_connection, init_db
+from fastapi import APIRouter, Depends, HTTPException
+from backend.database import get_connection
 from backend.repository import (
     get_board,
     rename_column,
@@ -7,7 +7,6 @@ from backend.repository import (
     move_card,
     delete_card,
     edit_card,
-    get_user_by_session,
 )
 from backend.models import (
     RenameColumnRequest,
@@ -21,17 +20,11 @@ from backend.routers.auth import get_current_user
 router = APIRouter(prefix="/api/board", tags=["board"])
 
 
-def _get_db_and_user(username: str):
-    conn = get_connection()
-    init_db(conn)
-    return conn, username
-
-
 @router.get("", response_model=BoardOut)
 def read_board(username: str = Depends(get_current_user)):
-    conn, user = _get_db_and_user(username)
+    conn = get_connection()
     try:
-        return get_board(conn, user)
+        return get_board(conn, username)
     finally:
         conn.close()
 
@@ -42,9 +35,9 @@ def rename_column_endpoint(
     request: RenameColumnRequest,
     username: str = Depends(get_current_user),
 ):
-    conn, user = _get_db_and_user(username)
+    conn = get_connection()
     try:
-        ok = rename_column(conn, user, column_id, request.title)
+        ok = rename_column(conn, username, column_id, request.title)
         if not ok:
             raise HTTPException(status_code=404, detail="Column not found")
         return {"status": "ok"}
@@ -57,9 +50,9 @@ def add_card_endpoint(
     request: AddCardRequest,
     username: str = Depends(get_current_user),
 ):
-    conn, user = _get_db_and_user(username)
+    conn = get_connection()
     try:
-        card_id = add_card(conn, user, request.column_id, request.title, request.details)
+        card_id = add_card(conn, username, request.column_id, request.title, request.details)
         if card_id is None:
             raise HTTPException(status_code=404, detail="Column not found")
         return {"card_id": card_id}
@@ -73,9 +66,9 @@ def move_card_endpoint(
     request: MoveCardRequest,
     username: str = Depends(get_current_user),
 ):
-    conn, user = _get_db_and_user(username)
+    conn = get_connection()
     try:
-        ok = move_card(conn, user, card_id, request.target_column_id, request.position)
+        ok = move_card(conn, username, card_id, request.target_column_id, request.position)
         if not ok:
             raise HTTPException(status_code=404, detail="Card or column not found")
         return {"status": "ok"}
@@ -88,9 +81,9 @@ def delete_card_endpoint(
     card_id: str,
     username: str = Depends(get_current_user),
 ):
-    conn, user = _get_db_and_user(username)
+    conn = get_connection()
     try:
-        ok = delete_card(conn, user, card_id)
+        ok = delete_card(conn, username, card_id)
         if not ok:
             raise HTTPException(status_code=404, detail="Card not found")
         return {"status": "ok"}
@@ -104,9 +97,9 @@ def edit_card_endpoint(
     request: EditCardRequest,
     username: str = Depends(get_current_user),
 ):
-    conn, user = _get_db_and_user(username)
+    conn = get_connection()
     try:
-        ok = edit_card(conn, user, card_id, request.title, request.details)
+        ok = edit_card(conn, username, card_id, request.title, request.details)
         if not ok:
             raise HTTPException(status_code=404, detail="Card not found")
         return {"status": "ok"}

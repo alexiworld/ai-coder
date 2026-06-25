@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional
 
 
@@ -63,6 +63,11 @@ class BoardUpdate(BaseModel):
     move_cards: list[MovedCard] = []
     edit_cards: list[EditedCard] = []
     delete_card_ids: list[str] = []
+
+    @field_validator("add_cards", "move_cards", "edit_cards", "delete_card_ids", mode="before")
+    @classmethod
+    def _coerce_null_to_list(cls, v):
+        return v if v is not None else []
 
 
 class AIResponse(BaseModel):

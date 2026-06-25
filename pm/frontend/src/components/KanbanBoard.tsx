@@ -54,6 +54,7 @@ export const KanbanBoard = () => {
   const router = useRouter();
   const routerRef = useRef(router);
   routerRef.current = router;
+  const renameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [board, setBoard] = useState<BoardData>(EMPTY_BOARD);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -80,6 +81,12 @@ export const KanbanBoard = () => {
   useEffect(() => {
     loadBoard();
   }, [loadBoard]);
+
+  useEffect(() => {
+    return () => {
+      if (renameTimerRef.current) clearTimeout(renameTimerRef.current);
+    };
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -122,7 +129,7 @@ export const KanbanBoard = () => {
     }
   };
 
-  const handleRenameColumn = async (columnId: string, title: string) => {
+  const handleRenameColumn = (columnId: string, title: string) => {
     setBoard((prev) => ({
       ...prev,
       columns: prev.columns.map((column) =>
@@ -130,11 +137,14 @@ export const KanbanBoard = () => {
       ),
     }));
 
-    try {
-      await apiRenameColumn(columnId, title);
-    } catch {
-      loadBoard();
-    }
+    if (renameTimerRef.current) clearTimeout(renameTimerRef.current);
+    renameTimerRef.current = setTimeout(async () => {
+      try {
+        await apiRenameColumn(columnId, title);
+      } catch {
+        loadBoard();
+      }
+    }, 400);
   };
 
   const handleAddCard = async (
@@ -143,20 +153,16 @@ export const KanbanBoard = () => {
     details: string,
   ) => {
     try {
-      const result = await apiAddCard(
-        columnId,
-        title,
-        details || "No details yet.",
-      );
+      const result = await apiAddCard(columnId, title, details);
       if (result === null) {
-        router.replace("/login");
+        routerRef.current.replace("/login");
         return;
       }
 
       const newCard: Card = {
         id: result.card_id,
         title,
-        details: details || "No details yet.",
+        details,
       };
       setBoard((prev) => ({
         ...prev,
