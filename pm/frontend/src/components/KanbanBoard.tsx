@@ -453,7 +453,7 @@ export const KanbanBoard = () => {
 
       <main className="relative mx-auto flex max-w-[1600px] flex-col gap-4 px-4 pb-8 pt-4">
         <div className="flex flex-col gap-4">
-          <header className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--stroke)] bg-white/90 px-5 py-3 shadow-[0_4px_16px_rgba(3,33,71,0.08)] backdrop-blur">
+          <header className="relative z-10 flex items-center justify-between gap-4 rounded-2xl border border-[var(--stroke)] bg-white/90 px-5 py-3 shadow-[0_4px_16px_rgba(3,33,71,0.08)] backdrop-blur">
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1.5">
                 <div className="h-3 w-3 rounded-full bg-[var(--accent-yellow)]" />

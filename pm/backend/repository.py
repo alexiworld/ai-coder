@@ -79,6 +79,14 @@ def get_user_id(conn: sqlite3.Connection, username: str) -> int:
     return row["id"]
 
 
+def register_user(conn: sqlite3.Connection, username: str, password: str) -> int:
+    """Create a new user. Raises ValueError if the username is already taken."""
+    cursor = conn.execute("SELECT id FROM users WHERE username = ?", (username,))
+    if cursor.fetchone():
+        raise ValueError("Username already taken")
+    return ensure_user(conn, username, password)
+
+
 def _get_default_board_id(conn: sqlite3.Connection, user_id: int) -> Optional[int]:
     cursor = conn.execute(
         "SELECT id FROM boards WHERE user_id = ? ORDER BY id LIMIT 1", (user_id,)

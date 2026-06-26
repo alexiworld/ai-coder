@@ -38,6 +38,29 @@ export async function login(username: string, password: string): Promise<LoginRe
   }
 }
 
+export async function register(username: string, password: string): Promise<LoginResult> {
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      return { success: false, error: data.detail || "Registration failed" };
+    }
+
+    const data = await res.json();
+    localStorage.setItem("kanban_token", data.token);
+    localStorage.setItem("kanban_username", data.username);
+    authState = { token: data.token, username: data.username };
+    return { success: true };
+  } catch {
+    return { success: false, error: "Network error. Is the server running?" };
+  }
+}
+
 export async function logout(): Promise<void> {
   const token = authState.token;
   if (token) {

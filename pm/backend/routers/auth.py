@@ -11,6 +11,7 @@ from backend.repository import (
     authenticate_user,
     change_password,
     get_user_id,
+    register_user,
 )
 from backend.models import ChangePasswordRequest
 
@@ -73,6 +74,34 @@ def login(request: LoginRequest):
                 # User doesn't exist — create new account
                 user_id = ensure_user(conn, request.username, request.password)
 
+        token = create_session(conn, user_id)
+        return LoginResponse(token=token, username=request.username)
+    finally:
+        conn.close()
+
+
+@router.post("/register", response_model=LoginResponse, status_code=201)
+def register(request: LoginRequest):
+    if not request.username or not request.password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username and password required",
+        )
+    if len(request.password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Password must be at least 6 characters",
+        )
+    conn = get_connection()
+    try:
+        init_db(conn)
+        try:
+            user_id = register_user(conn, request.username, request.password)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            )
         token = create_session(conn, user_id)
         return LoginResponse(token=token, username=request.username)
     finally:

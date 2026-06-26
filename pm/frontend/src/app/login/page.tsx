@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { LoginForm } from "@/components/LoginForm";
-import { login, isAuthenticated } from "@/lib/auth";
+import { login, register, isAuthenticated } from "@/lib/auth";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -29,7 +29,19 @@ export default function LoginPage() {
     }
   };
 
+  const handleRegister = async (username: string, password: string) => {
+    setError(null);
+    setIsLoading(true);
+    const result = await register(username, password);
+    setIsLoading(false);
+    if (result.success) {
+      router.replace("/");
+    } else {
+      setError(result.error ?? "Registration failed");
+    }
+  };
+
   return (
-    <LoginForm onLogin={handleLogin} error={error} isLoading={isLoading} />
+    <LoginForm onLogin={handleLogin} onRegister={handleRegister} error={error} isLoading={isLoading} />
   );
 }
