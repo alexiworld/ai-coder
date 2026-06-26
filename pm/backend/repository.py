@@ -171,7 +171,7 @@ def get_board(conn: sqlite3.Connection, username: str, board_id: Optional[int] =
 
     cursor = conn.execute(
         """SELECT c.column_id, c.title AS column_title, c.position AS col_position, c.color,
-                  cd.card_id, cd.title, cd.details, cd.priority, cd.due_date, cd.position AS card_position
+                  cd.id AS card_int_id, cd.card_id, cd.title, cd.details, cd.priority, cd.due_date, cd.position AS card_position
            FROM columns c
            LEFT JOIN cards cd ON cd.column_id = c.id
            WHERE c.board_id = ?
@@ -182,6 +182,7 @@ def get_board(conn: sqlite3.Connection, username: str, board_id: Optional[int] =
 
     columns_map: dict[str, dict] = {}
     cards_map: dict[str, dict] = {}
+    card_int_ids: dict[str, int] = {}  # card_id -> internal id
 
     for row in rows:
         col_id = row["column_id"]
@@ -202,7 +203,33 @@ def get_board(conn: sqlite3.Connection, username: str, board_id: Optional[int] =
                 "details": row["details"],
                 "priority": row["priority"] or "medium",
                 "due_date": row["due_date"],
+                "labels": [],
+                "comment_count": 0,
             }
+            card_int_ids[card_id] = row["card_int_id"]
+
+    # Fetch labels for all cards
+    if card_int_ids:
+        placeholders = ",".join("?" * len(card_int_ids))
+        label_rows = conn.execute(
+            f"SELECT card_id, id, label, color FROM card_labels WHERE card_id IN ({placeholders}) ORDER BY id",
+            list(card_int_ids.values()),
+        ).fetchall()
+        int_id_to_card: dict[int, str] = {v: k for k, v in card_int_ids.items()}
+        for lr in label_rows:
+            cid = int_id_to_card.get(lr["card_id"])
+            if cid and cid in cards_map:
+                cards_map[cid]["labels"].append({"id": lr["id"], "label": lr["label"], "color": lr["color"]})
+
+        # Fetch comment counts
+        comment_rows = conn.execute(
+            f"SELECT card_id, COUNT(*) AS cnt FROM card_comments WHERE card_id IN ({placeholders}) GROUP BY card_id",
+            list(card_int_ids.values()),
+        ).fetchall()
+        for cr in comment_rows:
+            cid = int_id_to_card.get(cr["card_id"])
+            if cid and cid in cards_map:
+                cards_map[cid]["comment_count"] = cr["cnt"]
 
     return {
         "id": board_row["id"],
@@ -382,6 +409,137 @@ def delete_card(
     )
     if commit:
         conn.commit()
+    return cursor.rowcount > 0
+
+
+def _get_card_internal_id(
+    conn: sqlite3.Connection,
+    username: str,
+    card_id: str,
+    board_id: Optional[int],
+) -> Optional[int]:
+    """Return the internal integer id of a card verifying ownership."""
+    user_id = get_user_id(conn, username)
+    if board_id is None:
+        board_id = _get_default_board_id(conn, user_id)
+    cursor = conn.execute(
+        """SELECT c.id FROM cards c
+           JOIN columns col ON col.id = c.column_id
+           JOIN boards b ON b.id = col.board_id
+           WHERE c.card_id = ? AND b.user_id = ? AND b.id = ?""",
+        (card_id, user_id, board_id),
+    )
+    row = cursor.fetchone()
+    return row["id"] if row else None
+
+
+# --- Comments ---
+
+
+def list_comments(
+    conn: sqlite3.Connection,
+    username: str,
+    card_id: str,
+    board_id: Optional[int] = None,
+) -> list[dict]:
+    internal_id = _get_card_internal_id(conn, username, card_id, board_id)
+    if internal_id is None:
+        return []
+    cursor = conn.execute(
+        "SELECT id, username, content, created_at FROM card_comments WHERE card_id = ? ORDER BY created_at",
+        (internal_id,),
+    )
+    return [dict(row) for row in cursor.fetchall()]
+
+
+def add_comment(
+    conn: sqlite3.Connection,
+    username: str,
+    card_id: str,
+    content: str,
+    board_id: Optional[int] = None,
+) -> Optional[dict]:
+    internal_id = _get_card_internal_id(conn, username, card_id, board_id)
+    if internal_id is None:
+        return None
+    cursor = conn.execute(
+        "INSERT INTO card_comments (card_id, username, content) VALUES (?, ?, ?)",
+        (internal_id, username, content),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT id, username, content, created_at FROM card_comments WHERE id = ?",
+        (cursor.lastrowid,),
+    ).fetchone()
+    return dict(row)
+
+
+def delete_comment(
+    conn: sqlite3.Connection,
+    username: str,
+    comment_id: int,
+) -> bool:
+    cursor = conn.execute(
+        "DELETE FROM card_comments WHERE id = ? AND username = ?",
+        (comment_id, username),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+# --- Labels ---
+
+
+def list_labels(
+    conn: sqlite3.Connection,
+    username: str,
+    card_id: str,
+    board_id: Optional[int] = None,
+) -> list[dict]:
+    internal_id = _get_card_internal_id(conn, username, card_id, board_id)
+    if internal_id is None:
+        return []
+    cursor = conn.execute(
+        "SELECT id, label, color FROM card_labels WHERE card_id = ? ORDER BY id",
+        (internal_id,),
+    )
+    return [dict(row) for row in cursor.fetchall()]
+
+
+def add_label(
+    conn: sqlite3.Connection,
+    username: str,
+    card_id: str,
+    label: str,
+    color: str = "#209dd7",
+    board_id: Optional[int] = None,
+) -> Optional[dict]:
+    internal_id = _get_card_internal_id(conn, username, card_id, board_id)
+    if internal_id is None:
+        return None
+    cursor = conn.execute(
+        "INSERT INTO card_labels (card_id, label, color) VALUES (?, ?, ?)",
+        (internal_id, label, color),
+    )
+    conn.commit()
+    return {"id": cursor.lastrowid, "label": label, "color": color}
+
+
+def delete_label(
+    conn: sqlite3.Connection,
+    username: str,
+    card_id: str,
+    label_id: int,
+    board_id: Optional[int] = None,
+) -> bool:
+    internal_id = _get_card_internal_id(conn, username, card_id, board_id)
+    if internal_id is None:
+        return False
+    cursor = conn.execute(
+        "DELETE FROM card_labels WHERE id = ? AND card_id = ?",
+        (label_id, internal_id),
+    )
+    conn.commit()
     return cursor.rowcount > 0
 
 

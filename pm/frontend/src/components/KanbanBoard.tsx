@@ -68,6 +68,8 @@ const convertApiResponse = (data: BoardResponse): BoardData => ({
         details: card.details,
         priority: card.priority,
         due_date: card.due_date,
+        labels: card.labels ?? [],
+        comment_count: card.comment_count ?? 0,
       },
     ]),
   ),
@@ -715,6 +717,7 @@ export const KanbanBoard = () => {
       {editingCard && (
         <CardDetailModal
           card={editingCard}
+          boardId={activeBoardId}
           onClose={handleCloseModal}
           onSave={handleSaveCard}
         />

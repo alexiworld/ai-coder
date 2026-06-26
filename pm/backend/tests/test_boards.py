@@ -511,3 +511,201 @@ class TestBoardApiResponse:
         card = board["cards"][card_id]
         assert card["priority"] == "high"
         assert card["due_date"] == "2026-12-31"
+
+
+def _setup_board_and_card(token: str) -> tuple[int, str]:
+    """Return (board_id, card_id) for tests that need a card."""
+    board = client.get("/api/board", headers=_auth(token)).json()
+    board_id = board["id"]
+    col_id = board["columns"][0]["id"]
+    add_res = client.post(
+        f"/api/boards/{board_id}/cards",
+        headers=_auth(token),
+        json={"column_id": col_id, "title": "Card", "details": ""},
+    )
+    card_id = add_res.json()["card_id"]
+    return board_id, card_id
+
+
+class TestComments:
+    def test_list_comments_empty(self):
+        token = _login()
+        board_id, card_id = _setup_board_and_card(token)
+        res = client.get(f"/api/boards/{board_id}/cards/{card_id}/comments", headers=_auth(token))
+        assert res.status_code == 200
+        assert res.json() == []
+
+    def test_add_comment(self):
+        token = _login()
+        board_id, card_id = _setup_board_and_card(token)
+        res = client.post(
+            f"/api/boards/{board_id}/cards/{card_id}/comments",
+            headers=_auth(token),
+            json={"content": "Hello world"},
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["content"] == "Hello world"
+        assert "id" in data
+        assert "created_at" in data
+
+    def test_list_comments_after_add(self):
+        token = _login()
+        board_id, card_id = _setup_board_and_card(token)
+        client.post(
+            f"/api/boards/{board_id}/cards/{card_id}/comments",
+            headers=_auth(token),
+            json={"content": "First"},
+        )
+        client.post(
+            f"/api/boards/{board_id}/cards/{card_id}/comments",
+            headers=_auth(token),
+            json={"content": "Second"},
+        )
+        res = client.get(f"/api/boards/{board_id}/cards/{card_id}/comments", headers=_auth(token))
+        assert len(res.json()) == 2
+
+    def test_delete_comment(self):
+        token = _login()
+        board_id, card_id = _setup_board_and_card(token)
+        add_res = client.post(
+            f"/api/boards/{board_id}/cards/{card_id}/comments",
+            headers=_auth(token),
+            json={"content": "Bye"},
+        )
+        comment_id = add_res.json()["id"]
+        del_res = client.delete(
+            f"/api/boards/{board_id}/cards/{card_id}/comments/{comment_id}",
+            headers=_auth(token),
+        )
+        assert del_res.status_code == 200
+        res = client.get(f"/api/boards/{board_id}/cards/{card_id}/comments", headers=_auth(token))
+        assert res.json() == []
+
+    def test_add_comment_empty_rejected(self):
+        token = _login()
+        board_id, card_id = _setup_board_and_card(token)
+        res = client.post(
+            f"/api/boards/{board_id}/cards/{card_id}/comments",
+            headers=_auth(token),
+            json={"content": "   "},
+        )
+        assert res.status_code == 422
+
+    def test_delete_comment_not_found(self):
+        token = _login()
+        board_id, card_id = _setup_board_and_card(token)
+        res = client.delete(
+            f"/api/boards/{board_id}/cards/{card_id}/comments/99999",
+            headers=_auth(token),
+        )
+        assert res.status_code == 404
+
+    def test_board_response_includes_comment_count(self):
+        token = _login()
+        board_id, card_id = _setup_board_and_card(token)
+        client.post(
+            f"/api/boards/{board_id}/cards/{card_id}/comments",
+            headers=_auth(token),
+            json={"content": "A"},
+        )
+        client.post(
+            f"/api/boards/{board_id}/cards/{card_id}/comments",
+            headers=_auth(token),
+            json={"content": "B"},
+        )
+        board = client.get(f"/api/boards/{board_id}", headers=_auth(token)).json()
+        assert board["cards"][card_id]["comment_count"] == 2
+
+
+class TestLabels:
+    def test_list_labels_empty(self):
+        token = _login()
+        board_id, card_id = _setup_board_and_card(token)
+        res = client.get(f"/api/boards/{board_id}/cards/{card_id}/labels", headers=_auth(token))
+        assert res.status_code == 200
+        assert res.json() == []
+
+    def test_add_label(self):
+        token = _login()
+        board_id, card_id = _setup_board_and_card(token)
+        res = client.post(
+            f"/api/boards/{board_id}/cards/{card_id}/labels",
+            headers=_auth(token),
+            json={"label": "bug", "color": "#ef4444"},
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["label"] == "bug"
+        assert data["color"] == "#ef4444"
+        assert "id" in data
+
+    def test_list_labels_after_add(self):
+        token = _login()
+        board_id, card_id = _setup_board_and_card(token)
+        client.post(
+            f"/api/boards/{board_id}/cards/{card_id}/labels",
+            headers=_auth(token),
+            json={"label": "frontend", "color": "#209dd7"},
+        )
+        client.post(
+            f"/api/boards/{board_id}/cards/{card_id}/labels",
+            headers=_auth(token),
+            json={"label": "backend", "color": "#753991"},
+        )
+        res = client.get(f"/api/boards/{board_id}/cards/{card_id}/labels", headers=_auth(token))
+        labels = res.json()
+        assert len(labels) == 2
+        names = [l["label"] for l in labels]
+        assert "frontend" in names
+        assert "backend" in names
+
+    def test_delete_label(self):
+        token = _login()
+        board_id, card_id = _setup_board_and_card(token)
+        add_res = client.post(
+            f"/api/boards/{board_id}/cards/{card_id}/labels",
+            headers=_auth(token),
+            json={"label": "urgent"},
+        )
+        label_id = add_res.json()["id"]
+        del_res = client.delete(
+            f"/api/boards/{board_id}/cards/{card_id}/labels/{label_id}",
+            headers=_auth(token),
+        )
+        assert del_res.status_code == 200
+        res = client.get(f"/api/boards/{board_id}/cards/{card_id}/labels", headers=_auth(token))
+        assert res.json() == []
+
+    def test_add_label_empty_rejected(self):
+        token = _login()
+        board_id, card_id = _setup_board_and_card(token)
+        res = client.post(
+            f"/api/boards/{board_id}/cards/{card_id}/labels",
+            headers=_auth(token),
+            json={"label": "  "},
+        )
+        assert res.status_code == 422
+
+    def test_delete_label_not_found(self):
+        token = _login()
+        board_id, card_id = _setup_board_and_card(token)
+        res = client.delete(
+            f"/api/boards/{board_id}/cards/{card_id}/labels/99999",
+            headers=_auth(token),
+        )
+        assert res.status_code == 404
+
+    def test_board_response_includes_labels(self):
+        token = _login()
+        board_id, card_id = _setup_board_and_card(token)
+        client.post(
+            f"/api/boards/{board_id}/cards/{card_id}/labels",
+            headers=_auth(token),
+            json={"label": "p1", "color": "#ef4444"},
+        )
+        board = client.get(f"/api/boards/{board_id}", headers=_auth(token)).json()
+        card = board["cards"][card_id]
+        assert len(card["labels"]) == 1
+        assert card["labels"][0]["label"] == "p1"
+        assert card["labels"][0]["color"] == "#ef4444"

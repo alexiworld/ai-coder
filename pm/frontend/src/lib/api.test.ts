@@ -23,6 +23,12 @@ import {
   moveCard,
   editCard,
   changePassword,
+  listComments,
+  addComment,
+  deleteComment,
+  listLabels,
+  addLabel,
+  deleteLabel,
 } from "@/lib/api";
 
 beforeEach(() => {
@@ -286,6 +292,62 @@ describe("API client", () => {
         method: "PUT",
         body: JSON.stringify({ current_password: "old", new_password: "new123" }),
       }),
+    );
+  });
+
+  it("listComments sends GET request", async () => {
+    const comments = [{ id: 1, username: "user", content: "hi", created_at: "2026-01-01" }];
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => comments });
+    const result = await listComments(1, "card-1");
+    expect(result).toEqual(comments);
+    expect(mockFetch).toHaveBeenCalledWith("/api/boards/1/cards/card-1/comments", expect.any(Object));
+  });
+
+  it("addComment sends POST request", async () => {
+    const comment = { id: 1, username: "user", content: "hello", created_at: "2026-01-01" };
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => comment });
+    const result = await addComment(1, "card-1", "hello");
+    expect(result).toEqual(comment);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/boards/1/cards/card-1/comments",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ content: "hello" }) }),
+    );
+  });
+
+  it("deleteComment sends DELETE request", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ status: "ok" }) });
+    await deleteComment(1, "card-1", 42);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/boards/1/cards/card-1/comments/42",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("listLabels sends GET request", async () => {
+    const labels = [{ id: 1, label: "bug", color: "#ef4444" }];
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => labels });
+    const result = await listLabels(1, "card-1");
+    expect(result).toEqual(labels);
+    expect(mockFetch).toHaveBeenCalledWith("/api/boards/1/cards/card-1/labels", expect.any(Object));
+  });
+
+  it("addLabel sends POST request", async () => {
+    const label = { id: 1, label: "bug", color: "#ef4444" };
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => label });
+    const result = await addLabel(1, "card-1", "bug", "#ef4444");
+    expect(result).toEqual(label);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/boards/1/cards/card-1/labels",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ label: "bug", color: "#ef4444" }) }),
+    );
+  });
+
+  it("deleteLabel sends DELETE request", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ status: "ok" }) });
+    await deleteLabel(1, "card-1", 7);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/boards/1/cards/card-1/labels/7",
+      expect.objectContaining({ method: "DELETE" }),
     );
   });
 });

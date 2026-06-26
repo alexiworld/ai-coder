@@ -58,11 +58,28 @@ CREATE TABLE IF NOT EXISTS cards (
     UNIQUE(column_id, card_id)
 );
 
+CREATE TABLE IF NOT EXISTS card_comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    card_id INTEGER NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    username TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS card_labels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    card_id INTEGER NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    color TEXT NOT NULL DEFAULT '#209dd7'
+);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_boards_user_id ON boards(user_id);
 CREATE INDEX IF NOT EXISTS idx_columns_board_id ON columns(board_id);
 CREATE INDEX IF NOT EXISTS idx_cards_column_id ON cards(column_id);
+CREATE INDEX IF NOT EXISTS idx_card_comments_card_id ON card_comments(card_id);
+CREATE INDEX IF NOT EXISTS idx_card_labels_card_id ON card_labels(card_id);
 """
 
 _DEFAULT_COLUMNS = [

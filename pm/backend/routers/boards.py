@@ -14,12 +14,20 @@ from backend.repository import (
     move_card,
     delete_card,
     edit_card,
+    list_comments,
+    add_comment,
+    delete_comment,
+    list_labels,
+    add_label,
+    delete_label,
 )
 from backend.models import (
     BoardSummary,
     BoardOut,
     ColumnOut,
     CardOut,
+    LabelOut,
+    CommentOut,
     CreateBoardRequest,
     RenameBoardRequest,
     RenameColumnRequest,
@@ -28,6 +36,8 @@ from backend.models import (
     AddCardRequest,
     EditCardRequest,
     MoveCardRequest,
+    AddCommentRequest,
+    AddLabelRequest,
 )
 from backend.routers.auth import get_current_user
 
@@ -35,11 +45,23 @@ router = APIRouter(prefix="/api/boards", tags=["boards"])
 
 
 def _to_board_out(data: dict) -> BoardOut:
+    def _card_out(v: dict) -> CardOut:
+        labels = [LabelOut(**lb) for lb in v.get("labels", [])]
+        return CardOut(
+            id=v["id"],
+            title=v["title"],
+            details=v["details"],
+            priority=v.get("priority", "medium"),
+            due_date=v.get("due_date"),
+            labels=labels,
+            comment_count=v.get("comment_count", 0),
+        )
+
     return BoardOut(
         id=data["id"],
         name=data["name"],
         columns=[ColumnOut(**c) for c in data["columns"]],
-        cards={k: CardOut(**v) for k, v in data["cards"].items()},
+        cards={k: _card_out(v) for k, v in data["cards"].items()},
     )
 
 
@@ -260,6 +282,110 @@ def edit_card_endpoint(
         )
         if not ok:
             raise HTTPException(status_code=404, detail="Card not found")
+        return {"status": "ok"}
+    finally:
+        conn.close()
+
+
+# --- Comments ---
+
+
+@router.get("/{board_id}/cards/{card_id}/comments", response_model=list[CommentOut])
+def list_comments_endpoint(
+    board_id: int,
+    card_id: str,
+    username: str = Depends(get_current_user),
+):
+    conn = get_connection()
+    try:
+        return list_comments(conn, username, card_id, board_id=board_id)
+    finally:
+        conn.close()
+
+
+@router.post("/{board_id}/cards/{card_id}/comments", response_model=CommentOut)
+def add_comment_endpoint(
+    board_id: int,
+    card_id: str,
+    request: AddCommentRequest,
+    username: str = Depends(get_current_user),
+):
+    if not request.content.strip():
+        raise HTTPException(status_code=422, detail="Comment cannot be empty")
+    conn = get_connection()
+    try:
+        result = add_comment(conn, username, card_id, request.content.strip(), board_id=board_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Card not found")
+        return result
+    finally:
+        conn.close()
+
+
+@router.delete("/{board_id}/cards/{card_id}/comments/{comment_id}")
+def delete_comment_endpoint(
+    board_id: int,
+    card_id: str,
+    comment_id: int,
+    username: str = Depends(get_current_user),
+):
+    conn = get_connection()
+    try:
+        ok = delete_comment(conn, username, comment_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Comment not found")
+        return {"status": "ok"}
+    finally:
+        conn.close()
+
+
+# --- Labels ---
+
+
+@router.get("/{board_id}/cards/{card_id}/labels", response_model=list[LabelOut])
+def list_labels_endpoint(
+    board_id: int,
+    card_id: str,
+    username: str = Depends(get_current_user),
+):
+    conn = get_connection()
+    try:
+        return list_labels(conn, username, card_id, board_id=board_id)
+    finally:
+        conn.close()
+
+
+@router.post("/{board_id}/cards/{card_id}/labels", response_model=LabelOut)
+def add_label_endpoint(
+    board_id: int,
+    card_id: str,
+    request: AddLabelRequest,
+    username: str = Depends(get_current_user),
+):
+    if not request.label.strip():
+        raise HTTPException(status_code=422, detail="Label cannot be empty")
+    conn = get_connection()
+    try:
+        result = add_label(conn, username, card_id, request.label.strip(), request.color, board_id=board_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Card not found")
+        return result
+    finally:
+        conn.close()
+
+
+@router.delete("/{board_id}/cards/{card_id}/labels/{label_id}")
+def delete_label_endpoint(
+    board_id: int,
+    card_id: str,
+    label_id: int,
+    username: str = Depends(get_current_user),
+):
+    conn = get_connection()
+    try:
+        ok = delete_label(conn, username, card_id, label_id, board_id=board_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Label not found")
         return {"status": "ok"}
     finally:
         conn.close()

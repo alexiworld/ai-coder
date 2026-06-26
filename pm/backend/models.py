@@ -37,6 +37,8 @@ class CardOut(BaseModel):
     details: str
     priority: str = "medium"
     due_date: Optional[str] = None
+    labels: list["LabelOut"] = []
+    comment_count: int = 0
 
 
 class ColumnOut(BaseModel):
@@ -76,6 +78,28 @@ class ChangePasswordRequest(BaseModel):
 
 class ReorderColumnsRequest(BaseModel):
     column_ids: list[str]
+
+
+class AddCommentRequest(BaseModel):
+    content: str
+
+
+class CommentOut(BaseModel):
+    id: int
+    username: str
+    content: str
+    created_at: str
+
+
+class AddLabelRequest(BaseModel):
+    label: str
+    color: str = "#209dd7"
+
+
+class LabelOut(BaseModel):
+    id: int
+    label: str
+    color: str
 
 
 # --- AI structured output models ---

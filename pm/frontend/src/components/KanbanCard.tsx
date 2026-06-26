@@ -85,7 +85,20 @@ export const KanbanCard = ({ card, onDelete, onEdit }: KanbanCardProps) => {
               {card.details}
             </p>
           )}
-          {(showPriority || dueDateInfo) && (
+          {card.labels && card.labels.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1" data-testid="card-labels">
+              {card.labels.map((lb) => (
+                <span
+                  key={lb.id}
+                  className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold text-white"
+                  style={{ backgroundColor: lb.color }}
+                >
+                  {lb.label}
+                </span>
+              ))}
+            </div>
+          )}
+          {(showPriority || dueDateInfo || (card.comment_count ?? 0) > 0) && (
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               {showPriority && (
                 <span
@@ -123,6 +136,27 @@ export const KanbanCard = ({ card, onDelete, onEdit }: KanbanCardProps) => {
                     <line x1="3" y1="10" x2="21" y2="10" />
                   </svg>
                   {dueDateInfo.label}
+                </span>
+              )}
+              {(card.comment_count ?? 0) > 0 && (
+                <span
+                  className="inline-flex items-center gap-0.5 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-[var(--gray-text)]"
+                  data-testid="comment-count"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="9"
+                    height="9"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  </svg>
+                  {card.comment_count}
                 </span>
               )}
             </div>

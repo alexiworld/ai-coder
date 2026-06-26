@@ -1,9 +1,17 @@
+export type Label = {
+  id: number;
+  label: string;
+  color: string;
+};
+
 export type Card = {
   id: string;
   title: string;
   details: string;
   priority: "low" | "medium" | "high" | "critical";
   due_date: string | null;
+  labels: Label[];
+  comment_count: number;
 };
 
 export type Column = {

@@ -29,12 +29,27 @@ async function authFetch(path: string, options: RequestInit = {}) {
   return res.json();
 }
 
+export type LabelData = {
+  id: number;
+  label: string;
+  color: string;
+};
+
+export type CommentData = {
+  id: number;
+  username: string;
+  content: string;
+  created_at: string;
+};
+
 export type CardData = {
   id: string;
   title: string;
   details: string;
   priority: "low" | "medium" | "high" | "critical";
   due_date: string | null;
+  labels: LabelData[];
+  comment_count: number;
 };
 
 export type ColumnData = {
@@ -220,6 +235,67 @@ export async function editCard(
   return authFetch(`/api/board/cards/${cardId}`, {
     method: "PUT",
     body: JSON.stringify(fields),
+  });
+}
+
+// --- Comments ---
+
+export async function listComments(
+  boardId: number,
+  cardId: string,
+): Promise<CommentData[] | null> {
+  return authFetch(`/api/boards/${boardId}/cards/${cardId}/comments`);
+}
+
+export async function addComment(
+  boardId: number,
+  cardId: string,
+  content: string,
+): Promise<CommentData | null> {
+  return authFetch(`/api/boards/${boardId}/cards/${cardId}/comments`, {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
+}
+
+export async function deleteComment(
+  boardId: number,
+  cardId: string,
+  commentId: number,
+): Promise<unknown> {
+  return authFetch(`/api/boards/${boardId}/cards/${cardId}/comments/${commentId}`, {
+    method: "DELETE",
+  });
+}
+
+// --- Labels ---
+
+export async function listLabels(
+  boardId: number,
+  cardId: string,
+): Promise<LabelData[] | null> {
+  return authFetch(`/api/boards/${boardId}/cards/${cardId}/labels`);
+}
+
+export async function addLabel(
+  boardId: number,
+  cardId: string,
+  label: string,
+  color: string = "#209dd7",
+): Promise<LabelData | null> {
+  return authFetch(`/api/boards/${boardId}/cards/${cardId}/labels`, {
+    method: "POST",
+    body: JSON.stringify({ label, color }),
+  });
+}
+
+export async function deleteLabel(
+  boardId: number,
+  cardId: string,
+  labelId: number,
+): Promise<unknown> {
+  return authFetch(`/api/boards/${boardId}/cards/${cardId}/labels/${labelId}`, {
+    method: "DELETE",
   });
 }
 
