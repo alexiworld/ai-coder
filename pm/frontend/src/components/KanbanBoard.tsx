@@ -342,6 +342,8 @@ export const KanbanBoard = () => {
         details,
         priority: "medium",
         due_date: null,
+        labels: [],
+        comment_count: 0,
       };
       setBoard((prev) => ({
         ...prev,
